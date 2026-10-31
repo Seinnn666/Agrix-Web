@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1100" viewBox="0 0 1600 1100">
+<defs><style>
+text{font-family:Arial,Helvetica,sans-serif;fill:#17232b}.title{font-size:27px;font-weight:700}.section{font-size:21px;font-weight:700}.user{font-size:19px;font-weight:700}.module{font-size:16px;font-weight:600}.sub{font-size:13px}.small{font-size:14px;fill:#53636d}.panel{fill:#fffdf7;stroke:#27343a;stroke-width:2.5}.box{fill:#fff;stroke:#27343a;stroke-width:1.8}.subbox{fill:#fff9df;stroke:#d59a00;stroke-width:1.7}.arrow{stroke:#64747b;stroke-width:2;fill:none;marker-end:url(#arrow)}
+</style><marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#64747b"/></marker></defs>
+<rect width="1600" height="1040" fill="#f5f8f7"/>
+<text x="52" y="44" class="title">AgriX User Modules</text><text x="52" y="72" class="small">Web and mobile application structure</text>
+<!-- Web boundary -->
+<rect x="35" y="105" width="1025" height="940" rx="18" fill="none" stroke="#28373d" stroke-width="2.5" stroke-dasharray="14 10"/>
+<rect x="58" y="91" width="204" height="31" fill="#f5f8f7"/><text x="66" y="114" class="section">WEB APPLICATION</text>
+<!-- Admin -->
+<rect x="65" y="145" width="455" height="790" rx="20" fill="#fff1c9" stroke="#27343a" stroke-width="2.5"/>
+<circle cx="292" cy="184" r="22" fill="#405c53"/><circle cx="292" cy="174" r="7" fill="#fff"/><path d="M278 198 Q292 180 306 198 L306 207 L278 207Z" fill="#fff"/>
+<text x="292" y="235" text-anchor="middle" class="user">ADMIN</text>
+<!-- admin modules -->
+<g>
+<rect x="130" y="270" width="325" height="62" rx="12" class="box"/><text x="292" y="308" text-anchor="middle" class="module">Login</text>
+<rect x="130" y="350" width="325" height="62" rx="12" class="box"/><text x="292" y="388" text-anchor="middle" class="module">Admin Console</text>
+<rect x="130" y="430" width="325" height="62" rx="12" class="box"/><text x="292" y="468" text-anchor="middle" class="module">Profile</text>
+<rect x="130" y="510" width="325" height="62" rx="12" class="box"/><text x="292" y="548" text-anchor="middle" class="module">User Management</text>
+<rect x="130" y="590" width="325" height="62" rx="12" class="box"/><text x="292" y="628" text-anchor="middle" class="module">Notification</text>
+<rect x="130" y="670" width="325" height="62" rx="12" class="box"/><text x="292" y="708" text-anchor="middle" class="module">Dashboard</text>
+</g><text x="292" y="790" text-anchor="middle" class="small">Administrator access</text>
+<!-- Client Web -->
+<rect x="555" y="145" width="455" height="870" rx="20" fill="#e4f3f7" stroke="#27343a" stroke-width="2.5"/>
+<circle cx="782" cy="184" r="22" fill="#405c53"/><circle cx="782" cy="174" r="7" fill="#fff"/><path d="M768 198 Q782 180 796 198 L796 207 L768 207Z" fill="#fff"/>
+<text x="782" y="235" text-anchor="middle" class="user">CLIENT</text>
+<rect x="620" y="250" width="325" height="58" rx="12" class="box"/><text x="782" y="286" text-anchor="middle" class="module">Landing Page</text>
+<rect x="620" y="324" width="325" height="94" rx="12" class="box"/><text x="782" y="349" text-anchor="middle" class="module">Login</text><rect x="641" y="362" width="283" height="42" rx="9" class="subbox"/><text x="782" y="389" text-anchor="middle" class="sub">Forgot Password</text>
+<rect x="620" y="434" width="325" height="58" rx="12" class="box"/><text x="782" y="470" text-anchor="middle" class="module">Dashboard</text>
+<rect x="620" y="508" width="325" height="58" rx="12" class="box"/><text x="782" y="544" text-anchor="middle" class="module">Notification</text>
+<rect x="620" y="582" width="325" height="58" rx="12" class="box"/><text x="782" y="618" text-anchor="middle" class="module">Profile</text>
+<rect x="620" y="656" width="325" height="300" rx="14" class="box"/><text x="782" y="685" text-anchor="middle" class="module">Device Sensors</text>
+<rect x="642" y="702" width="281" height="39" rx="8" class="subbox"/><text x="782" y="727" text-anchor="middle" class="sub">Reading Timeline</text>
+<rect x="642" y="747" width="281" height="39" rx="8" class="subbox"/><text x="782" y="772" text-anchor="middle" class="sub">Graph History</text>
+<rect x="642" y="792" width="281" height="39" rx="8" class="subbox"/><text x="782" y="817" text-anchor="middle" class="sub">Snapshot Gallery</text>
+<rect x="642" y="837" width="281" height="39" rx="8" class="subbox"/><text x="782" y="862" text-anchor="middle" class="sub">Alert History</text>
+<rect x="642" y="882" width="281" height="39" rx="8" class="subbox"/><text x="782" y="907" text-anchor="middle" class="sub">Open Monitoring</text>
+<!-- mobile -->
+<text x="1115" y="114" class="section">MOBILE APPLICATION</text>
+<rect x="1110" y="145" width="430" height="870" rx="28" fill="#bce4f0" stroke="#27343a" stroke-width="2.5"/>
+<circle cx="1325" cy="184" r="22" fill="#405c53"/><circle cx="1325" cy="174" r="7" fill="#fff"/><path d="M1311 198 Q1325 180 1339 198 L1339 207 L1311 207Z" fill="#fff"/>
+<text x="1325" y="235" text-anchor="middle" class="user">CLIENT USER ONLY</text>
+<rect x="1160" y="250" width="330" height="58" rx="12" class="box"/><text x="1325" y="286" text-anchor="middle" class="module">Landing Page</text>
+<rect x="1160" y="324" width="330" height="94" rx="12" class="box"/><text x="1325" y="349" text-anchor="middle" class="module">Login</text><rect x="1181" y="362" width="288" height="42" rx="9" class="subbox"/><text x="1325" y="389" text-anchor="middle" class="sub">Forgot Password</text>
+<rect x="1160" y="434" width="330" height="58" rx="12" class="box"/><text x="1325" y="470" text-anchor="middle" class="module">Dashboard</text>
+<rect x="1160" y="508" width="330" height="58" rx="12" class="box"/><text x="1325" y="544" text-anchor="middle" class="module">Notification</text>
+<rect x="1160" y="582" width="330" height="58" rx="12" class="box"/><text x="1325" y="618" text-anchor="middle" class="module">Profile</text>
+<rect x="1160" y="656" width="330" height="300" rx="14" class="box"/><text x="1325" y="685" text-anchor="middle" class="module">Device Sensors</text>
+<rect x="1182" y="702" width="286" height="39" rx="8" class="subbox"/><text x="1325" y="727" text-anchor="middle" class="sub">Reading Timeline</text>
+<rect x="1182" y="747" width="286" height="39" rx="8" class="subbox"/><text x="1325" y="772" text-anchor="middle" class="sub">Graph History</text>
+<rect x="1182" y="792" width="286" height="39" rx="8" class="subbox"/><text x="1325" y="817" text-anchor="middle" class="sub">Snapshot Gallery</text>
+<rect x="1182" y="837" width="286" height="39" rx="8" class="subbox"/><text x="1325" y="862" text-anchor="middle" class="sub">Alert History</text>
+<rect x="1182" y="882" width="286" height="39" rx="8" class="subbox"/><text x="1325" y="907" text-anchor="middle" class="sub">Open Monitoring</text>
+<text x="800" y="1075" text-anchor="middle" class="small">Yellow outlined items are submodules grouped within their parent module.</text>
+</svg>
+
+
+

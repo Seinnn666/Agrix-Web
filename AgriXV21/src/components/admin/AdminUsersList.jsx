@@ -6,14 +6,13 @@ import { adminUsersStyles as styles } from './adminUsersStyles';
 function fullName(u) {
   const first = String(u?.firstName || '').trim();
   const last = String(u?.lastName || '').trim();
-  return `${first} ${last}`.trim();
+  return `${first} ${last}`.trim() || String(u?.fullName || u?.full_name || u?.name || '').trim();
 }
 
 function roleLabel(u) {
   const raw = String(u?.role || '').trim().toLowerCase();
   if (raw === 'admin' || u?.isAdmin) return 'ADMIN';
-  if (raw === 'farm_owner' || raw === 'farm owner' || raw === 'farm-owner') return 'FARM OWNER';
-  return 'FARMER';
+  return 'USER';
 }
 
 export default function AdminUsersList({ isCompact, items, status, onEdit, onDelete, onToggleAdmin }) {

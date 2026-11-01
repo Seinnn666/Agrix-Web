@@ -2,8 +2,8 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Image, Platform, useWindowDimensions, Animated } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AgriXLogo from '../components/AgriXLogo';
-import { API_BASE_URL, clearAuth, getMe, loadAuth, saveAuth, updateMe, uploadAvatar, requestUpdateOtp, verifyUpdateOtp } from '../lib/authApi';
-import { getPhoneRules, normalizePhoneInput, validateName, validateAddress, validateDateOfBirth } from '../lib/validation';
+import { API_BASE_URL, clearAuth, getAuthToken, getMe, loadAuth, saveAuth, updateMe, uploadAvatar, requestUpdateOtp, verifyUpdateOtp } from '../lib/authApi';
+import { getPhoneRules, normalizePhoneInput, validateName, validateAddress, validateDateOfBirth, validateGender, validatePhoneE164, validateActiveEmail } from '../lib/validation';
 import { addNotification } from '../lib/notifications';
 import HoverPressable from '../components/HoverPressable';
 import DateOfBirthPicker from '../components/DateOfBirthPicker';
@@ -15,7 +15,7 @@ import { getThemeMode, setThemeMode as setAppTheme, subscribeTheme } from '../li
 
 // Simple Modal Component for OTP
 function OtpUpdateModal({ 
-  visible, onClose, step, type, value, onChangeValue, otp, onChangeOtp, onAction, error, loading,
+  visible, onClose, step, type, value, onChangeValue, otp, onChangeOtp, onAction, onResend, error, loading,
   countryCode, setCountryCode, isCountryOpen, setIsCountryOpen, countryOptions, phoneRules
 }) {
   if (!visible) return null;
@@ -30,96 +30,106 @@ function OtpUpdateModal({
             <Text style={styles.modalText}>Enter your new {type === 'email' ? 'email address' : 'phone number'}. We will send you an OTP to verify.</Text>
             
             {type === 'email' ? (
-              <TextInput
-                style={styles.modalInput}
-                value={value}
-                onChangeText={onChangeValue}
-                placeholder="New Email"
-                keyboardType="email-address"
-                autoCapitalize="none"
-              />
+              <View style={styles.modalFieldStack}>
+                <TextInput
+                  style={styles.modalInput}
+                  value={value}
+                  onChangeText={onChangeValue}
+                  placeholder="New Email"
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                />
+                {!!error && <Text style={styles.modalFieldError}>{error}</Text>}
+              </View>
             ) : (
-              <View style={{ position: 'relative', zIndex: 10 }}>
-                <View style={styles.phoneRow}>
-                  <TouchableOpacity
-                    style={styles.countryButton}
-                    onPress={() => setIsCountryOpen(!isCountryOpen)}
-                  >
-                    <Text style={styles.countryButtonText}>{countryCode}</Text>
-                  </TouchableOpacity>
-                  <TextInput
-                    style={[styles.modalInput, { flex: 1, marginBottom: 0 }]}
-                    value={value}
-                    onChangeText={(text) => {
-                      // Only allow numbers
-                      const digits = text.replace(/\D/g, '');
-                      // Apply PH specific rule if +63
-                      if (countryCode === '+63') {
-                         let next = digits;
-                         if (next && next[0] !== '0') next = `0${next}`;
-                         if (next.length >= 2 && next[0] === '0' && next[1] !== '9') {
-                           next = `09${next.slice(2)}`;
-                         }
-                         onChangeValue(next.slice(0, phoneRules?.maxLength || 11));
-                         return;
-                      }
-                      onChangeValue(digits.slice(0, phoneRules?.maxLength || 15));
-                    }}
-                    placeholder={phoneRules?.placeholder || 'Phone Number'}
-                    keyboardType="phone-pad"
-                    maxLength={phoneRules?.maxLength || 15}
-                  />
-                </View>
-                {isCountryOpen && (
-                  <View style={styles.countryDropdown}>
-                    <Text style={styles.countryDropdownTitle}>Select country code</Text>
-                    <ScrollView style={styles.countryDropdownScroll}>
-                      {countryOptions.map((opt) => (
-                        <TouchableOpacity
-                          key={opt.label}
-                          style={[
-                            styles.countryOption,
-                            opt.value === countryCode && styles.countryOptionSelected,
-                          ]}
-                          onPress={() => {
-                            setCountryCode(opt.value);
-                            onChangeValue('');
-                            setIsCountryOpen(false);
-                          }}
-                        >
-                          <Text
-                            style={[
-                              styles.countryOptionText,
-                              opt.value === countryCode && styles.countryOptionTextSelected,
-                            ]}
-                          >
-                            {opt.label}
-                          </Text>
-                        </TouchableOpacity>
-                      ))}
-                    </ScrollView>
+              <View style={styles.modalFieldStack}>
+                <View style={{ position: 'relative', zIndex: 10 }}>
+                  <View style={styles.phoneRow}>
+                    <TouchableOpacity
+                      style={styles.countryButton}
+                      onPress={() => setIsCountryOpen(!isCountryOpen)}
+                    >
+                      <Text style={styles.countryButtonText}>{countryCode}</Text>
+                    </TouchableOpacity>
+                    <TextInput
+                      style={[styles.modalInput, { flex: 1, marginBottom: 0 }]}
+                      value={value}
+                      onChangeText={(text) => {
+                        const digits = text.replace(/\D/g, '');
+                        if (countryCode === '+63') {
+                           let next = digits;
+                           if (next && next[0] !== '0') next = `0${next}`;
+                           if (next.length >= 2 && next[0] === '0' && next[1] !== '9') {
+                             next = `09${next.slice(2)}`;
+                           }
+                           onChangeValue(next.slice(0, phoneRules?.maxLength || 11));
+                           return;
+                        }
+                        onChangeValue(digits.slice(0, phoneRules?.maxLength || 15));
+                      }}
+                      placeholder={phoneRules?.placeholder || 'Phone Number'}
+                      keyboardType="phone-pad"
+                      maxLength={phoneRules?.maxLength || 15}
+                    />
                   </View>
-                )}
+                  {isCountryOpen && (
+                    <View style={styles.countryDropdown}>
+                      <Text style={styles.countryDropdownTitle}>Select country code</Text>
+                      <ScrollView style={styles.countryDropdownScroll}>
+                        {countryOptions.map((opt) => (
+                          <TouchableOpacity
+                            key={opt.label}
+                            style={[
+                              styles.countryOption,
+                              opt.value === countryCode && styles.countryOptionSelected,
+                            ]}
+                            onPress={() => {
+                              setCountryCode(opt.value);
+                              onChangeValue('');
+                              setIsCountryOpen(false);
+                            }}
+                          >
+                            <Text
+                              style={[
+                                styles.countryOptionText,
+                                opt.value === countryCode && styles.countryOptionTextSelected,
+                              ]}
+                            >
+                              {opt.label}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                      </ScrollView>
+                    </View>
+                  )}
+                </View>
+                {!!error && <Text style={styles.modalFieldError}>{error}</Text>}
               </View>
             )}
           </>
         ) : (
           <>
              <Text style={styles.modalText}>Enter the OTP sent to {value}.</Text>
-             <TextInput
-              style={styles.modalInput}
-              value={otp}
-              onChangeText={onChangeOtp}
-              placeholder="Enter OTP"
-              keyboardType="number-pad"
-              maxLength={6}
-            />
+             <View style={styles.modalFieldStack}>
+               <TextInput
+                style={styles.modalInput}
+                value={otp}
+                onChangeText={onChangeOtp}
+                placeholder="Enter OTP"
+                keyboardType="number-pad"
+                maxLength={6}
+              />
+              {!!error && <Text style={styles.modalFieldError}>{error}</Text>}
+             </View>
           </>
         )}
 
-        {!!error && <Text style={styles.errorText}>{error}</Text>}
-
         <View style={styles.modalActions}>
+          {step === 'verify' && (
+            <TouchableOpacity onPress={onResend} style={styles.modalBtnResend} disabled={loading}>
+              <Text style={styles.modalBtnTextResend}>Resend code</Text>
+            </TouchableOpacity>
+          )}
           <TouchableOpacity onPress={onClose} style={styles.modalBtnCancel} disabled={loading}>
             <Text style={styles.modalBtnTextCancel}>Cancel</Text>
           </TouchableOpacity>
@@ -136,6 +146,7 @@ export default function MyProfileScreen({ navigation }) {
   const [user, setUser] = useState(() => loadAuth().user);
   const [status, setStatus] = useState('idle');
   const [error, setError] = useState('');
+  const [fieldErrors, setFieldErrors] = useState({});
   const [logoutVisible, setLogoutVisible] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [leaveVisible, setLeaveVisible] = useState(false);
@@ -236,11 +247,7 @@ export default function MyProfileScreen({ navigation }) {
   }, [user?.phone]);
 
   useEffect(() => {
-    const { token, user: cachedUser } = loadAuth();
-    if (!token) {
-      navigation.reset({ index: 0, routes: [{ name: 'SignIn' }] });
-      return;
-    }
+    const { user: cachedUser } = loadAuth();
     if (cachedUser) setUser(cachedUser);
 
     let cancelled = false;
@@ -248,10 +255,12 @@ export default function MyProfileScreen({ navigation }) {
       try {
         setError('');
         setStatus('loading');
+        const token = await getAuthToken();
+        if (cancelled) return;
         const data = await getMe();
         if (cancelled) return;
         setUser(data.user);
-        saveAuth(token, data.user);
+        if (token) saveAuth(token, data.user);
         setDraft({
           firstName: data.user?.firstName || '',
           lastName: data.user?.lastName || '',
@@ -360,6 +369,12 @@ export default function MyProfileScreen({ navigation }) {
       let finalValue = otpValue;
       if (otpType === 'phone') {
         finalValue = normalizePhoneInput(countryCode, otpValue).e164;
+        const phoneValidation = validatePhoneE164(finalValue, { required: true, countryCode, phoneNumber: otpValue });
+        if (!phoneValidation.ok) throw new Error(phoneValidation.message);
+      } else {
+        const emailValidation = validateActiveEmail(otpValue);
+        if (!emailValidation.ok) throw new Error(emailValidation.message);
+        finalValue = emailValidation.value;
       }
 
       await requestUpdateOtp({ type: otpType, value: finalValue });
@@ -369,6 +384,7 @@ export default function MyProfileScreen({ navigation }) {
         message: otpType === 'phone' ? 'A verification code was sent to your phone number.' : 'A verification code was sent to your email.',
         level: 'success',
       });
+      setOtpCode('');
       setOtpStep('verify');
     } catch (err) {
       const message = err?.message || 'Failed to request verification code';
@@ -385,7 +401,7 @@ export default function MyProfileScreen({ navigation }) {
       setOtpError('');
       const data = await verifyUpdateOtp({ otp: otpCode });
       setUser(data.user);
-      const { token } = loadAuth();
+      const token = await getAuthToken();
       if (token) saveAuth(token, data.user);
       setOtpModalVisible(false);
       addNotification({
@@ -445,7 +461,7 @@ export default function MyProfileScreen({ navigation }) {
           setStatus('uploading');
           const data = await uploadAvatar(file);
           setUser(data.user);
-          const { token } = loadAuth();
+          const token = await getAuthToken();
           if (token) saveAuth(token, data.user);
           setStatus('ready');
           addNotification({
@@ -472,33 +488,19 @@ export default function MyProfileScreen({ navigation }) {
   const handleSaveProfile = async () => {
     try {
       setError('');
-      
-      // Validations
+      const nextFieldErrors = {};
       const fNameVal = validateName(draft.firstName, 'First Name');
-      if (!fNameVal.ok) {
-        setError(fNameVal.message);
-        return;
-      }
-      
       const lNameVal = validateName(draft.lastName, 'Last Name');
-      if (!lNameVal.ok) {
-        setError(lNameVal.message);
-        return;
-      }
-
       const addrVal = validateAddress(draft.address);
-      if (!addrVal.ok) {
-        setError(addrVal.message);
-        return;
-      }
-
-      if (draft.dateOfBirth) {
-         const dobVal = validateDateOfBirth(draft.dateOfBirth);
-         if (!dobVal.ok) {
-            setError(dobVal.message);
-            return;
-         }
-      }
+      const dobVal = validateDateOfBirth(draft.dateOfBirth);
+      const genderVal = validateGender(draft.gender);
+      if (!fNameVal.ok) nextFieldErrors.firstName = fNameVal.message;
+      if (!lNameVal.ok) nextFieldErrors.lastName = lNameVal.message;
+      if (!addrVal.ok) nextFieldErrors.address = addrVal.message;
+      if (!dobVal.ok) nextFieldErrors.dateOfBirth = dobVal.message;
+      if (!genderVal.ok) nextFieldErrors.gender = genderVal.message;
+      setFieldErrors(nextFieldErrors);
+      if (Object.keys(nextFieldErrors).length) return;
 
       setStatus('saving');
       // Email and Phone are handled separately via OTP
@@ -507,12 +509,13 @@ export default function MyProfileScreen({ navigation }) {
         lastName: lNameVal.value,
         address: addrVal.value,
         dateOfBirth: draft.dateOfBirth,
-        gender: draft.gender,
+        gender: genderVal.value,
       });
       setUser(data.user);
-      const { token } = loadAuth();
+      const token = await getAuthToken();
       if (token) saveAuth(token, data.user);
       setIsEditing(false);
+      setFieldErrors({});
       setStatus('ready');
       setDraftDirty(false);
       draftInitRef.current.loaded = false;
@@ -535,6 +538,7 @@ export default function MyProfileScreen({ navigation }) {
 
   const handleCancelEdit = () => {
     setIsEditing(false);
+    setFieldErrors({});
     setDraft({
       firstName: user?.firstName || '',
       lastName: user?.lastName || '',
@@ -608,7 +612,7 @@ export default function MyProfileScreen({ navigation }) {
         <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
           <View style={styles.mainLayout}>
             {/* Top Navbar */}
-            <View style={styles.topNavbar}>
+            <View style={[styles.topNavbar, isDark && styles.topNavbarDark]}>
               <AgriXLogo
                 onPress={() => navigation.reset({ index: 0, routes: [{ name: 'Dashboard' }] })}
                 style={styles.navbarLogo}
@@ -721,7 +725,6 @@ export default function MyProfileScreen({ navigation }) {
                     </View>
                     
                     {!!error && <Text style={styles.errorText}>{error}</Text>}
-
                     <View style={[styles.fieldsGrid, isCompact && styles.fieldsGridCompact]}>
                        {/* Full Name */}
                        <View style={styles.fieldItem}>
@@ -730,22 +733,30 @@ export default function MyProfileScreen({ navigation }) {
                              <Text style={[styles.fieldLabel, isDark && styles.mutedTextDark]}>Full Name</Text>
                           </View>
                           {isEditing ? (
+                             <>
                              <View style={styles.nameInputs}>
-                                <TextInput
-                                  style={[styles.input, isDark && styles.inputDark]}
-                                  value={draft.firstName}
-                                  onChangeText={(v) => setDraft(d => ({...d, firstName: v}))}
-                                  placeholder="First"
-                                  maxLength={35}
-                                />
-                                <TextInput
-                                  style={[styles.input, isDark && styles.inputDark]}
-                                  value={draft.lastName}
-                                  onChangeText={(v) => setDraft(d => ({...d, lastName: v}))}
-                                  placeholder="Last"
-                                  maxLength={35}
-                                />
+                                <View style={styles.nameField}>
+                                  <TextInput
+                                    style={[styles.input, styles.nameInput, isDark && styles.inputDark, fieldErrors.firstName && styles.inputError]}
+                                    value={draft.firstName}
+                                    onChangeText={(v) => { setFieldErrors(e => ({...e, firstName: undefined})); setDraft(d => ({...d, firstName: v})); }}
+                                    placeholder="First"
+                                    maxLength={37}
+                                  />
+                                  {!!fieldErrors.firstName && <Text style={styles.fieldError}>{fieldErrors.firstName}</Text>}
+                                </View>
+                                <View style={styles.nameField}>
+                                  <TextInput
+                                    style={[styles.input, styles.nameInput, isDark && styles.inputDark, fieldErrors.lastName && styles.inputError]}
+                                    value={draft.lastName}
+                                    onChangeText={(v) => { setFieldErrors(e => ({...e, lastName: undefined})); setDraft(d => ({...d, lastName: v})); }}
+                                    placeholder="Last"
+                                    maxLength={37}
+                                  />
+                                  {!!fieldErrors.lastName && <Text style={styles.fieldError}>{fieldErrors.lastName}</Text>}
+                                </View>
                              </View>
+                             </>
                           ) : (
                              <Text style={[styles.fieldValue, isDark && styles.textDark]}>{fullName}</Text>
                           )}
@@ -790,12 +801,15 @@ export default function MyProfileScreen({ navigation }) {
                              <Text style={[styles.fieldLabel, isDark && styles.mutedTextDark]}>Address</Text>
                           </View>
                           {isEditing ? (
+                             <View style={styles.fieldInputStack}>
                              <TextInput
-                                style={[styles.input, isDark && styles.inputDark]}
+                                style={[styles.input, isDark && styles.inputDark, fieldErrors.address && styles.inputError]}
                                 value={draft.address}
-                                onChangeText={(v) => setDraft(d => ({...d, address: v}))}
+                                onChangeText={(v) => { setFieldErrors(e => ({...e, address: undefined})); setDraft(d => ({...d, address: v})); }}
                                 placeholder="Address"
                              />
+                             {!!fieldErrors.address && <Text style={styles.fieldError}>{fieldErrors.address}</Text>}
+                             </View>
                           ) : (
                              <Text style={[styles.fieldValue, isDark && styles.textDark]} numberOfLines={2}>{user?.address || '—'}</Text>
                           )}
@@ -810,7 +824,9 @@ export default function MyProfileScreen({ navigation }) {
                           {isEditing ? (
                              <DateOfBirthPicker
                                 value={draft.dateOfBirth}
-                                onChange={(v) => setDraft(d => ({...d, dateOfBirth: v}))}
+                                onChange={(v) => { setFieldErrors(e => ({...e, dateOfBirth: undefined})); setDraft(d => ({...d, dateOfBirth: v})); }}
+                                error={fieldErrors.dateOfBirth}
+                                allowInvalidSelection
                              />
                           ) : (
                              <Text style={[styles.fieldValue, isDark && styles.textDark]}>{user?.dateOfBirth ? new Date(user.dateOfBirth).toLocaleDateString() : '—'}</Text>
@@ -824,6 +840,8 @@ export default function MyProfileScreen({ navigation }) {
                              <Text style={[styles.fieldLabel, isDark && styles.mutedTextDark]}>Gender</Text>
                           </View>
                           {isEditing ? (
+                             <>
+                             <View style={styles.fieldInputStack}>
                              <View style={styles.genderOptions}>
                                {['male', 'female', 'rather_not_say'].map(g => (
                                  <TouchableOpacity
@@ -833,7 +851,7 @@ export default function MyProfileScreen({ navigation }) {
                                      isDark && styles.inputDark,
                                      draft.gender === g && styles.genderChipActive,
                                    ]}
-                                   onPress={() => setDraft(d => ({...d, gender: g}))}
+                                     onPress={() => { setFieldErrors(e => ({...e, gender: undefined})); setDraft(d => ({...d, gender: g})); }}
                                  >
                                    <Text style={[styles.genderChipText, isDark && styles.mutedTextDark, draft.gender === g && styles.genderChipTextActive]}>
                                       {g.replace(/_/g, ' ')}
@@ -841,6 +859,9 @@ export default function MyProfileScreen({ navigation }) {
                                  </TouchableOpacity>
                                ))}
                              </View>
+                             {!!fieldErrors.gender && <Text style={styles.fieldError}>{fieldErrors.gender}</Text>}
+                             </View>
+                             </>
                           ) : (
                              <Text style={[styles.fieldValue, { textTransform: 'capitalize' }, isDark && styles.textDark]}>
                                {user?.gender ? user.gender.replace(/_/g, ' ') : '—'}
@@ -849,7 +870,7 @@ export default function MyProfileScreen({ navigation }) {
                        </View>
 
                        {/* Password */}
-                       <View style={styles.fieldItem}>
+                       <View style={[styles.fieldItem, styles.passwordField]}>
                           <View style={styles.fieldLabelRow}>
                              <Lock size={14} color={isDark ? '#9CA3AF' : theme.colors.textMuted} />
                              <Text style={[styles.fieldLabel, isDark && styles.mutedTextDark]}>Password</Text>
@@ -908,10 +929,11 @@ export default function MyProfileScreen({ navigation }) {
             step={otpStep}
             type={otpType}
             value={otpValue}
-            onChangeValue={setOtpValue}
+            onChangeValue={(value) => { setOtpError(''); setOtpValue(value); }}
             otp={otpCode}
             onChangeOtp={setOtpCode}
             onAction={otpStep === 'request' ? handleRequestOtp : handleVerifyOtp}
+            onResend={handleRequestOtp}
             error={otpError}
             loading={otpLoading}
             countryCode={countryCode}
@@ -948,22 +970,25 @@ const styles = StyleSheet.create({
   },
   topNavbar: {
     height: 72,
-    backgroundColor: 'transparent',
+    width: '100%',
+    backgroundColor: '#F8FAFC',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 28,
-    zIndex: 300,
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
+    zIndex: 50,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(15, 23, 42, 0.08)',
     ...Platform.select({
       web: {
         position: 'sticky',
         top: 0,
       },
     }),
+  },
+  topNavbarDark: {
+    backgroundColor: '#020617',
+    borderBottomColor: '#1F2937',
   },
   navbarLogo: {
     justifyContent: 'center',
@@ -977,7 +1002,7 @@ const styles = StyleSheet.create({
   },
   hamburgerLine: {
     height: 3,
-    backgroundColor: '#fff',
+    backgroundColor: theme.colors.brandDark,
     marginVertical: 3,
     borderRadius: 2,
     width: '100%',
@@ -1273,18 +1298,18 @@ const styles = StyleSheet.create({
   },
   
   fieldsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 32,
-  },
-  fieldsGridCompact: {
-    flexDirection: 'column',
+    display: 'grid',
+    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
     gap: 24,
   },
+  fieldsGridCompact: {
+    gridTemplateColumns: 'minmax(0, 1fr)',
+  },
   fieldItem: {
-    width: '45%',
-    minWidth: 240,
-    flexGrow: 1,
+    minWidth: 0,
+  },
+  passwordField: {
+    gridColumn: '1 / -1',
   },
   fieldLabelRow: {
     flexDirection: 'row',
@@ -1303,13 +1328,13 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: theme.colors.text,
     fontWeight: '500',
-    paddingLeft: 22,
+    marginTop: 4,
   },
   valueRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingLeft: 22,
+    gap: 12,
   },
   changeLink: {
     fontSize: 13,
@@ -1324,19 +1349,51 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 16,
     fontSize: 15,
-    marginLeft: 22,
+    flex: 0,
+    width: '100%',
+    minWidth: 0,
+    boxSizing: 'border-box',
     color: theme.colors.text,
   },
+  inputError: {
+    borderColor: theme.colors.danger,
+  },
+  fieldError: {
+    marginTop: 6,
+    color: theme.colors.danger,
+    fontSize: 12,
+    fontWeight: '600',
+  },
   nameInputs: {
-    flexDirection: 'row',
+    display: 'grid',
+    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
     gap: 12,
-    marginLeft: 22,
+    width: '100%',
+    minWidth: 0,
+  },
+  nameField: {
+    width: '100%',
+    minWidth: 0,
+    flexDirection: 'column',
+  },
+  fieldInputStack: {
+    flexDirection: 'column',
+    width: '100%',
+    minWidth: 0,
+  },
+  nameInput: {
+    flex: 0,
+    width: '100%',
+    height: 44,
+    minWidth: 0,
+    marginLeft: 0,
+    paddingHorizontal: 12,
+    boxSizing: 'border-box',
   },
   genderOptions: {
     flexDirection: 'row',
     gap: 12,
     flexWrap: 'wrap',
-    marginLeft: 22,
   },
   genderChip: {
     paddingVertical: 8,
@@ -1496,9 +1553,19 @@ const styles = StyleSheet.create({
     borderRadius: theme.radius.input,
     padding: 16,
     fontSize: 16,
-    marginBottom: 24,
+    marginBottom: 0,
     color: theme.colors.text,
     backgroundColor: 'rgba(255, 255, 255, 0.5)',
+  },
+  modalFieldStack: {
+    flexDirection: 'column',
+    gap: 6,
+    marginBottom: 24,
+  },
+  modalFieldError: {
+    color: theme.colors.danger,
+    fontSize: 13,
+    fontWeight: '600',
   },
   modalActions: {
     flexDirection: 'row',
@@ -1509,6 +1576,15 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 16,
     borderRadius: theme.radius.pill,
+  },
+  modalBtnResend: {
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: theme.radius.pill,
+  },
+  modalBtnTextResend: {
+    color: theme.colors.brandDark,
+    fontWeight: '700',
   },
   modalBtnTextCancel: {
     color: theme.colors.textMuted,

@@ -8,6 +8,8 @@ function resolveSupabaseUrl() {
 }
 
 function resolveSupabaseKey() {
+  const secret = String(process.env.SUPABASE_SECRET_KEY || '').trim();
+  if (secret) return secret;
   const service = String(process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
   if (service) return service;
   const anon = String(process.env.SUPABASE_ANON_KEY || '').trim();
@@ -16,13 +18,27 @@ function resolveSupabaseKey() {
 }
 
 let supabaseAdmin;
+let supabaseAuthVerifier;
+
+export function getSupabaseAuthVerifier() {
+  if (supabaseAuthVerifier) return supabaseAuthVerifier;
+  const url = resolveSupabaseUrl();
+  const key = String(process.env.SUPABASE_ANON_KEY || process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || '').trim();
+  if (!key) {
+    throw new Error('Missing SUPABASE_ANON_KEY for access-token verification');
+  }
+  supabaseAuthVerifier = createClient(url, key, {
+    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+  });
+  return supabaseAuthVerifier;
+}
 
 export function getSupabaseAdmin() {
   if (supabaseAdmin) return supabaseAdmin;
   const url = resolveSupabaseUrl();
   const key = resolveSupabaseKey();
   if (!key) {
-    throw new Error('Missing SUPABASE_SERVICE_ROLE_KEY (or SUPABASE_ANON_KEY)');
+    throw new Error('Missing SUPABASE_SECRET_KEY (or SUPABASE_SERVICE_ROLE_KEY)');
   }
   supabaseAdmin = createClient(url, key, {
     auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },

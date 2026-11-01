@@ -1,36 +1,16 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Platform, Text, TextInput, View, useWindowDimensions } from 'react-native';
+import { Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import HoverPressable from '../components/HoverPressable';
 import ConfirmDialog from '../components/ConfirmDialog';
 import ScreenTransition from '../components/ScreenTransition';
-import { clearAdminAuth, deleteAdminUser, hasAdminPanelAccess, listAdminUsers, loadAdminAuth, updateAdminUser } from '../lib/adminApi';
+import { clearAdminAuth, deleteAdminUser, hasAdminPanelAccess, listAdminUsers, updateAdminUser } from '../lib/adminApi';
+import { clearAuth } from '../lib/authApi';
 import { logAdminActivity } from '../lib/adminActivity';
 import { validateAddress, validateDateOfBirth, validateEmail, validateGender, validateName } from '../lib/validation';
 import AdminUsersList from '../components/admin/AdminUsersList';
 import AdminUserEditModal from '../components/admin/AdminUserEditModal';
 import { adminUsersStyles as styles } from '../components/admin/adminUsersStyles';
-
-function confirmDeleteUser(email, onConfirm) {
-  const msg = `Delete user ${email || ''}? This cannot be undone.`;
-  if (Platform.OS === 'web' && typeof window !== 'undefined' && typeof window.confirm === 'function') {
-    const ok = window.confirm(msg);
-    if (ok) onConfirm();
-    return;
-  }
-  onConfirm();
-}
-
-function confirmRoleChange(email, toAdmin, onConfirm) {
-  const label = toAdmin ? 'promote' : 'remove admin from';
-  const msg = `Confirm: ${label} ${email || ''}?`;
-  if (Platform.OS === 'web' && typeof window !== 'undefined' && typeof window.confirm === 'function') {
-    const ok = window.confirm(msg);
-    if (ok) onConfirm();
-    return;
-  }
-  onConfirm();
-}
 
 export default function AdminUsersScreen({ navigation }) {
   const { width } = useWindowDimensions();
@@ -43,6 +23,7 @@ export default function AdminUsersScreen({ navigation }) {
   const [total, setTotal] = useState(0);
   const [items, setItems] = useState([]);
   const [editing, setEditing] = useState(null);
+  const [crudConfirm, setCrudConfirm] = useState(null);
   const [draft, setDraft] = useState({
     firstName: '',
     lastName: '',
@@ -51,7 +32,7 @@ export default function AdminUsersScreen({ navigation }) {
     address: '',
     dateOfBirth: '',
     gender: 'rather_not_say',
-    role: 'farmer',
+    role: 'user',
   });
   const [logoutVisible, setLogoutVisible] = useState(false);
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -68,12 +49,15 @@ export default function AdminUsersScreen({ navigation }) {
       setStatus('ready');
     } catch (err) {
       if (err?.code === 'SESSION_EXPIRED' || err?.code === 'UNAUTHORIZED') {
+        await clearAuth();
         clearAdminAuth();
-        navigation.reset({ index: 0, routes: [{ name: 'AdminLogin' }] });
+        navigation.reset({ index: 0, routes: [{ name: 'SignIn' }] });
         return;
       }
       if (err?.code === 'FORBIDDEN') {
-        navigation.reset({ index: 0, routes: [{ name: 'AdminLogin' }] });
+        await clearAuth();
+        clearAdminAuth();
+        navigation.reset({ index: 0, routes: [{ name: 'SignIn' }] });
         return;
       }
       setStatus('error');
@@ -83,7 +67,7 @@ export default function AdminUsersScreen({ navigation }) {
 
   useEffect(() => {
     if (!hasAdminPanelAccess()) {
-      navigation.reset({ index: 0, routes: [{ name: 'AdminLogin' }] });
+      navigation.reset({ index: 0, routes: [{ name: 'SignIn' }] });
       return;
     }
     load();
@@ -97,7 +81,6 @@ export default function AdminUsersScreen({ navigation }) {
 
   const startEdit = (u) => {
     setEditing(u);
-    const role = String(u?.role || '').trim().toLowerCase();
     setDraft({
       firstName: String(u?.firstName || ''),
       lastName: String(u?.lastName || ''),
@@ -106,7 +89,7 @@ export default function AdminUsersScreen({ navigation }) {
       address: String(u?.address || ''),
       dateOfBirth: String(u?.dateOfBirth || ''),
       gender: String(u?.gender || 'rather_not_say'),
-      role: role === 'admin' || role === 'farm_owner' || role === 'farmer' ? role : u?.isAdmin ? 'admin' : 'farmer',
+      role: u?.isAdmin || String(u?.role || '').trim().toLowerCase() === 'admin' ? 'admin' : 'user',
     });
     setError('');
   };
@@ -159,17 +142,7 @@ export default function AdminUsersScreen({ navigation }) {
       return;
     }
 
-    const nextRoleRaw = String(draft.role || '').trim().toLowerCase();
-    const nextRole =
-      nextRoleRaw === 'admin' || nextRoleRaw === 'farmer' || nextRoleRaw === 'farm_owner' || nextRoleRaw === 'farm owner'
-        ? nextRoleRaw === 'farm owner'
-          ? 'farm_owner'
-          : nextRoleRaw
-        : '';
-    if (!nextRole) {
-      setError('Role must be: admin, farm_owner, or farmer');
-      return;
-    }
+    const nextRole = String(draft.role || '').trim().toLowerCase() === 'admin' ? 'admin' : 'user';
 
     try {
       setError('');
@@ -200,44 +173,63 @@ export default function AdminUsersScreen({ navigation }) {
 
   const handleDelete = async (u) => {
     if (!u?.id) return;
-    confirmDeleteUser(u.email, async () => {
-      try {
-        setError('');
-        setStatus('deleting');
-        await deleteAdminUser(u.id);
-        setItems((prev) => prev.filter((x) => x.id !== u.id));
-        setTotal((t) => Math.max(0, t - 1));
-        logAdminActivity({ type: 'user_delete', message: `Deleted user ${u?.email || ''}` });
-        setStatus('ready');
-      } catch (err) {
-        setStatus('error');
-        setError(err?.message || 'Failed to delete user');
-      }
+    setCrudConfirm({
+      title: 'Delete user?',
+      message: `Delete user ${u.email || ''}? This cannot be undone.`,
+      confirmText: 'Delete',
+      destructive: true,
+      onConfirm: async () => {
+        try {
+          setError('');
+          setStatus('deleting');
+          await deleteAdminUser(u.id);
+          setItems((prev) => prev.filter((x) => x.id !== u.id));
+          setTotal((t) => Math.max(0, t - 1));
+          logAdminActivity({ type: 'user_delete', message: `Deleted user ${u?.email || ''}` });
+          setStatus('ready');
+        } catch (err) {
+          setStatus('error');
+          setError(err?.message || 'Failed to delete user');
+        }
+      },
     });
   };
 
   const handleToggleAdmin = async (u) => {
     if (!u?.id) return;
     const next = !u.isAdmin;
-    confirmRoleChange(u.email, next, async () => {
-      try {
-        setError('');
-        setStatus('saving');
-        const nextRole = next ? 'admin' : String(u?.role || '') === 'farm_owner' ? 'farm_owner' : 'farmer';
-        const data = await updateAdminUser(u.id, { role: nextRole, isAdmin: next });
-        const updated = data?.user;
-        setItems((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
-        if (editing?.id === updated.id) setEditing(updated);
-        logAdminActivity({
-          type: 'admin_access_change',
-          message: `${next ? 'Promoted' : 'Removed admin from'} ${updated?.email || u?.email || ''}`,
-        });
-        setStatus('ready');
-      } catch (err) {
-        setStatus('error');
-        setError(err?.message || 'Failed to update admin access');
-      }
+    const action = next ? 'Give admin access to' : 'Remove admin access from';
+    setCrudConfirm({
+      title: `${next ? 'Make admin' : 'Remove admin'}?`,
+      message: `${action} ${u.email || ''}?`,
+      confirmText: next ? 'Make Admin' : 'Remove Admin',
+      destructive: !next,
+      onConfirm: async () => {
+        try {
+          setError('');
+          setStatus('saving');
+          const nextRole = next ? 'admin' : 'user';
+          const data = await updateAdminUser(u.id, { role: nextRole, isAdmin: next });
+          const updated = data?.user;
+          setItems((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
+          if (editing?.id === updated.id) setEditing(updated);
+          logAdminActivity({
+            type: 'admin_access_change',
+            message: `${next ? 'Promoted' : 'Removed admin from'} ${updated?.email || u?.email || ''}`,
+          });
+          setStatus('ready');
+        } catch (err) {
+          setStatus('error');
+          setError(err?.message || 'Failed to update admin access');
+        }
+      },
     });
+  };
+
+  const confirmCrudAction = () => {
+    const action = crudConfirm?.onConfirm;
+    setCrudConfirm(null);
+    if (typeof action === 'function') action();
   };
 
   const backToDashboard = () => {
@@ -247,13 +239,14 @@ export default function AdminUsersScreen({ navigation }) {
   const endAdminSession = () => {
     setLogoutVisible(true);
   };
-  const confirmEndAdminSession = () => {
+  const confirmEndAdminSession = async () => {
     setLogoutVisible(false);
+    await clearAuth();
     clearAdminAuth();
-    navigation.reset({ index: 0, routes: [{ name: 'AdminLogin' }] });
+    navigation.reset({ index: 0, routes: [{ name: 'SignIn' }] });
   };
 
-  const hasAdminSession = Boolean(loadAdminAuth().token);
+  const hasAdminSession = hasAdminPanelAccess();
 
   const runSearch = () => {
     const nextQ = String(q || '').trim();
@@ -288,6 +281,16 @@ export default function AdminUsersScreen({ navigation }) {
         destructive
         onCancel={() => setLogoutVisible(false)}
         onConfirm={confirmEndAdminSession}
+      />
+      <ConfirmDialog
+        visible={Boolean(crudConfirm)}
+        title={crudConfirm?.title}
+        message={crudConfirm?.message}
+        confirmText={crudConfirm?.confirmText}
+        cancelText="Cancel"
+        destructive={crudConfirm?.destructive}
+        onCancel={() => setCrudConfirm(null)}
+        onConfirm={confirmCrudAction}
       />
 
       <View style={styles.filtersRow}>

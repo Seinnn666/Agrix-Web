@@ -31,7 +31,7 @@ export default function AppFooter({
     if (type === 'terms') {
       setModalContent({
         title: 'Terms of Use',
-        body: `Welcome to AgriX. By accessing our platform, you agree to these terms.\n\n1. Usage: You agree to use AgriX for lawful coffee monitoring and research purposes.\n\n2. Account: You are responsible for maintaining the confidentiality of your account credentials.\n\n3. Data: We collect sensor and camera data to provide dashboards and insights. Your project data remains yours.\n\n4. Liability: AgriX provides data-driven insights but is not liable for decisions made based on this data.\n\n5. Termination: We reserve the right to terminate accounts that violate these terms.\n\nLast Updated: 2026-02-01`
+        body: `Welcome to AgriX. By accessing our platform, you agree to these terms.\n\n1. Usage: You agree to use AgriX for lawful coffee monitoring and research purposes.\n\n2. Account: You are responsible for maintaining the confidentiality of your account credentials.\n\n3. Data: We collect sensor data to provide dashboards and insights. Your project data remains yours.\n\n4. Liability: AgriX provides data-driven insights but is not liable for decisions made based on this data.\n\n5. Termination: We reserve the right to terminate accounts that violate these terms.\n\nLast Updated: 2026-02-01`
       });
     } else {
       setModalContent({

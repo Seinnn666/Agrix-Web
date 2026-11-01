@@ -83,7 +83,7 @@ router.get('/', requireAuth, async (req, res) => {
   }
 });
 
-// Get my farm (Farm Owner)
+// Get the authenticated user's farm
 router.get('/my-farm', requireAuth, async (req, res) => {
   try {
     const supabase = getSupabaseAdmin();
@@ -98,7 +98,7 @@ router.get('/my-farm', requireAuth, async (req, res) => {
   }
 });
 
-// Create farm (Farm Owner)
+// Create a farm for the authenticated user
 router.post('/', requireAuth, async (req, res) => {
   try {
     const { name, location, description, crops } = req.body;
@@ -253,7 +253,7 @@ router.put('/:id', requireAuth, async (req, res) => {
 
 // --- Application Routes ---
 
-// Apply to a farm (Farmer)
+// Apply to a farm as the authenticated user
 router.post('/:id/apply', requireAuth, async (req, res) => {
   try {
     const farmId = req.params.id;
@@ -291,7 +291,7 @@ router.post('/:id/apply', requireAuth, async (req, res) => {
   }
 });
 
-// Get applications for my farm (Farm Owner)
+// Get applications for the authenticated user's farm
 router.get('/my-farm/applications', requireAuth, async (req, res) => {
   try {
     const supabase = getSupabaseAdmin();
@@ -325,7 +325,7 @@ router.get('/my-farm/applications', requireAuth, async (req, res) => {
   }
 });
 
-// Get my applications (Farmer)
+// Get applications submitted by the authenticated user
 router.get('/my-applications', requireAuth, async (req, res) => {
   try {
     const supabase = getSupabaseAdmin();
@@ -355,7 +355,7 @@ router.get('/my-applications', requireAuth, async (req, res) => {
   }
 });
 
-// Accept/Reject application (Farm Owner)
+// Accept or reject an application for the authenticated user's farm
 router.patch('/applications/:id', requireAuth, async (req, res) => {
   try {
     const { status } = req.body; // 'accepted' or 'rejected'

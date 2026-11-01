@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Image, Platform, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
+import { Platform, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import Svg, { Circle, Line, Polyline, Rect, Text as SvgText } from 'react-native-svg';
 import { theme } from '../../ui/theme';
 import HoverPressable from '../HoverPressable';
@@ -14,13 +14,11 @@ import {
   setAlertRules,
   getIotSocketUrl,
   getLatestSensorReading,
-  getLatestSnapshot,
   getSensorThresholds,
   getAlertState,
   setAlertState,
   isReadingFresh,
   listSensorReadings,
-  setLatestSnapshot,
   setSensorThresholds,
   subscribeSensors,
 } from '../../lib/sensors';
@@ -37,7 +35,6 @@ export default function FarmerDashboard({ user, navigation }) {
   const isDark = themeMode === 'dark';
   const [latestReading, setLatestReading] = useState(() => getLatestSensorReading());
   const [thresholds, setThresholds] = useState(() => getSensorThresholds());
-  const [latestSnapshot, setLatestSnapshotState] = useState(() => getLatestSnapshot());
   const [rules, setRules] = useState(() => getAlertRules());
   const [thresholdModal, setThresholdModal] = useState(false);
   const [thresholdDraft, setThresholdDraft] = useState(() => getSensorThresholds());
@@ -80,7 +77,6 @@ export default function FarmerDashboard({ user, navigation }) {
     const refresh = () => {
       setLatestReading(getLatestSensorReading());
       setThresholds(getSensorThresholds());
-      setLatestSnapshotState(getLatestSnapshot());
       setRules(getAlertRules());
       setIotSocketUrlState(getIotSocketUrl());
     };
@@ -393,29 +389,6 @@ export default function FarmerDashboard({ user, navigation }) {
     setLatestReading(reading);
   };
 
-  const uploadSnapshot = () => {
-    if (Platform.OS !== 'web' || typeof document === 'undefined') {
-      addNotification({ key: 'snapshot:unsupported', title: 'Snapshot upload unavailable', message: 'Snapshot upload is available on web for now.', level: 'info' });
-      return;
-    }
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = 'image/*';
-    input.onchange = async () => {
-      const file = input.files && input.files[0];
-      if (!file) return;
-      const reader = new FileReader();
-      reader.onload = () => {
-        const url = String(reader.result || '');
-        const snap = setLatestSnapshot({ url, createdAt: Date.now() });
-        setLatestSnapshotState(snap);
-        addNotification({ key: 'snapshot:added', title: 'Snapshot added', message: 'A new camera snapshot was saved to your device.', level: 'success' });
-      };
-      reader.readAsDataURL(file);
-    };
-    input.click();
-  };
-
   const Sparkline = ({ points, color, unit = '', title = '', recommendedBand, thresholdLines }) => {
     const [cursorTs, setCursorTs] = useState(0);
     const [cursorVisible, setCursorVisible] = useState(false);
@@ -686,7 +659,7 @@ export default function FarmerDashboard({ user, navigation }) {
           <View style={[styles.guideCard, isCompact && styles.guideCardCompact, isDark && { backgroundColor: 'rgba(15, 23, 42, 0.85)', borderColor: '#1F2937' }]}>
               <Text style={[styles.guideText, isDark && { color: '#F9FAFB' }]}>Real-time monitoring dashboard</Text>
               <Text style={[styles.guideSubText, isCompact && styles.guideSubTextCompact, isDark && { color: '#9CA3AF' }]}>
-                Track humidity and temperature in storage environments, review camera snapshots, and monitor bean moisture to support safer Robusta coffee handling.
+                Track humidity and temperature in storage environments and monitor bean moisture to support safer Robusta coffee handling.
               </Text>
           </View>
 
@@ -760,9 +733,6 @@ export default function FarmerDashboard({ user, navigation }) {
                 <HoverPressable style={styles.secondaryAction} onPress={() => navigation?.navigate?.('ReadingsTimeline')}>
                   <Text style={styles.secondaryActionText}>Readings</Text>
                 </HoverPressable>
-                <HoverPressable style={styles.secondaryAction} onPress={() => navigation?.navigate?.('Snapshots')}>
-                  <Text style={styles.secondaryActionText}>Snapshots</Text>
-                </HoverPressable>
                 <HoverPressable style={styles.secondaryAction} onPress={() => navigation?.navigate?.('AlertHistory')}>
                   <Text style={styles.secondaryActionText}>Alert history</Text>
                 </HoverPressable>
@@ -816,32 +786,11 @@ export default function FarmerDashboard({ user, navigation }) {
               />
             </View>
 
-            <View style={[styles.card, isDark && { backgroundColor: 'rgba(15, 23, 42, 0.85)', borderColor: '#1F2937' }]}>
-              <Text style={[styles.cardTitle, isDark && { color: '#F9FAFB' }]}>Latest snapshot</Text>
-              {latestSnapshot?.url ? (
-                <>
-                  <Image source={{ uri: latestSnapshot.url }} style={styles.snapshotImage} resizeMode="cover" />
-                  <Text style={[styles.snapshotMeta, isDark && { color: '#9CA3AF' }]}>Captured: {new Date(latestSnapshot.createdAt).toLocaleString()}</Text>
-                </>
-              ) : (
-                <Text style={[styles.emptyText, isDark && { color: '#9CA3AF' }]}>No snapshot yet. Upload one to verify conditions visually.</Text>
-              )}
-              <View style={styles.ctaRow}>
-                <HoverPressable style={styles.primaryAction} onPress={uploadSnapshot}>
-                  <Text style={styles.primaryActionText}>Upload snapshot</Text>
-                </HoverPressable>
-                <HoverPressable style={styles.secondaryAction} onPress={() => navigation?.navigate?.('Notifications')}>
-                  <Text style={styles.secondaryActionText}>Open Notifications</Text>
-                </HoverPressable>
-              </View>
-            </View>
-
-            <View style={[styles.card, isDark && { backgroundColor: 'rgba(15, 23, 42, 0.85)', borderColor: '#1F2937' }]}>
+            <View style={[styles.card, { flexBasis: '100%' }, isDark && { backgroundColor: 'rgba(15, 23, 42, 0.85)', borderColor: '#1F2937' }]}>
               <Text style={[styles.cardTitle, isDark && { color: '#F9FAFB' }]}>Daily checklist</Text>
               <View style={styles.bullets}>
                 {[
                   'Check humidity and temperature to prevent mold-friendly conditions in storage.',
-                  'Review the latest camera snapshot when readings look risky.',
                   'Monitor bean moisture for storage surveillance and better decisions.',
                   'Acknowledge important alerts so nothing gets missed.',
                 ].map((t) => (
@@ -1279,20 +1228,6 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: theme.colors.textMuted,
     fontSize: 12,
-  },
-  snapshotImage: {
-    width: '100%',
-    height: 180,
-    borderRadius: theme.radius.card,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    backgroundColor: 'rgba(0,0,0,0.06)',
-  },
-  snapshotMeta: {
-    marginTop: 10,
-    fontSize: 12,
-    fontWeight: '700',
-    color: theme.colors.textMuted,
   },
   modalOverlay: {
     position: 'absolute',

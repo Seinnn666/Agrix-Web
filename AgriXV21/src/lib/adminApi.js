@@ -45,7 +45,7 @@ function getAdminBearerToken() {
   if (adminToken && isExpired(expiresAt)) clearAdminAuth();
 
   const { token: userToken, user } = loadAuth();
-  if (userToken && user?.isAdmin) return userToken;
+  if (userToken && (user?.isAdmin || String(user?.role || '').trim().toLowerCase() === 'admin')) return userToken;
   return '';
 }
 

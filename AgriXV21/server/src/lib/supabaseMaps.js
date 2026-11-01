@@ -9,6 +9,20 @@ function asString(v) {
   return v === null || v === undefined ? '' : String(v);
 }
 
+function pickNonEmpty(obj, keys) {
+  for (const key of keys) {
+    const value = obj?.[key];
+    if (value !== null && value !== undefined && String(value).trim() !== '') return value;
+  }
+  return undefined;
+}
+
+function asIsoString(v) {
+  if (v === null || v === undefined || v === '') return '';
+  const date = new Date(v);
+  return Number.isFinite(date.getTime()) ? date.toISOString() : '';
+}
+
 export function parseBool(v) {
   if (typeof v === 'boolean') return v;
   if (typeof v === 'number') return v !== 0;
@@ -25,20 +39,9 @@ function asBool(v) {
   return parseBool(v);
 }
 
-function normalizeRole(v) {
-  const raw = String(v || '').trim().toLowerCase();
-  if (!raw) return '';
-  if (raw === 'admin') return 'admin';
-  if (raw === 'farmer') return 'farmer';
-  if (raw === 'farm_owner' || raw === 'farm owner' || raw === 'farm-owner') return 'farm_owner';
-  return raw;
-}
-
 function resolveRole(u) {
   if (parseBool(pick(u, ['isAdmin', 'is_admin']))) return 'admin';
-  const role = normalizeRole(pick(u, ['role']));
-  if (role === 'farmer' || role === 'farm_owner') return role;
-  return 'farmer';
+  return 'user';
 }
 
 function asDateOnlyString(v) {
@@ -73,11 +76,17 @@ export function userRowToPublic(u) {
 }
 
 export function userRowToAdminDto(u) {
+  const firstName = asString(pickNonEmpty(u, ['firstName', 'first_name', 'givenName', 'given_name']));
+  const lastName = asString(pickNonEmpty(u, ['lastName', 'last_name', 'familyName', 'family_name']));
+  const storedName = asString(pickNonEmpty(u, ['fullName', 'full_name', 'name'])).trim();
+  const createdAt = asIsoString(pickNonEmpty(u, ['createdAt', 'created_at', 'joinedAt', 'joined_at']));
+  const updatedAt = asIsoString(pickNonEmpty(u, ['updatedAt', 'updated_at']));
   return {
     _id: asString(pick(u, ['id', '_id'])),
     id: asString(pick(u, ['id', '_id'])),
-    firstName: asString(pick(u, ['firstName', 'first_name'])),
-    lastName: asString(pick(u, ['lastName', 'last_name'])),
+    firstName,
+    lastName,
+    fullName: storedName || `${firstName} ${lastName}`.trim(),
     phone: asString(pick(u, ['phone'])),
     email: asString(pick(u, ['email'])),
     address: asString(pick(u, ['address'])),
@@ -88,8 +97,8 @@ export function userRowToAdminDto(u) {
     phoneVerified: asBool(pick(u, ['phoneVerified', 'phone_verified'])),
     isAdmin: asBool(pick(u, ['isAdmin', 'is_admin'])),
     role: resolveRole(u),
-    createdAt: pick(u, ['createdAt', 'created_at']) ? new Date(pick(u, ['createdAt', 'created_at'])).toISOString() : '',
-    updatedAt: pick(u, ['updatedAt', 'updated_at']) ? new Date(pick(u, ['updatedAt', 'updated_at'])).toISOString() : '',
+    createdAt,
+    updatedAt: updatedAt || createdAt,
   };
 }
 

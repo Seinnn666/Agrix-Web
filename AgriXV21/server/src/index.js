@@ -6,6 +6,7 @@ import express from 'express';
 import cors from 'cors';
 import { checkDb } from './lib/db.js';
 import authRouter from './routes/auth.js';
+import notificationsRouter from './routes/notifications.js';
 import usersRouter from './routes/users.js';
 import adminRouter from './routes/admin.js';
 import farmsRouter from './routes/farms.js';
@@ -250,6 +251,7 @@ app.get('/reset-password', (req, res) => {
 });
 
 app.use('/auth', authRouter);
+app.use('/notifications', notificationsRouter);
 app.use('/users', usersRouter);
 app.use('/admin', adminRouter);
 app.use('/farms', farmsRouter);

@@ -59,14 +59,13 @@ export default function AdminUserEditModal({ user, draft, setDraft, onSave, onCa
             {!!error && <Text style={styles.errorText}>{error}</Text>}
 
             <View style={styles.modalField}>
-              <Text style={styles.modalLabel}>Role</Text>
+              <Text style={styles.modalLabel}>Account type</Text>
               <View style={styles.roleRow}>
                 {[
-                  { value: 'farmer', label: 'Farmer' },
-                  { value: 'farm_owner', label: 'Farm Owner' },
+                  { value: 'user', label: 'User' },
                   { value: 'admin', label: 'Admin' },
                 ].map((opt) => {
-                  const active = String(draft.role || 'farmer') === opt.value;
+                  const active = String(draft.role || 'user') === opt.value;
                   return (
                     <HoverPressable
                       key={opt.value}

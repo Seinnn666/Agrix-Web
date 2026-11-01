@@ -167,12 +167,14 @@ export default function NotificationsScreen({ navigation }) {
   };
 
   const handleAdminPress = () => {
-    navigation.navigate(canAccessAdmin ? 'AdminUsers' : 'AdminLogin');
+    if (!canAccessAdmin) return;
+    navigation.navigate('AdminUsers');
     collapseSidebar();
   };
 
   const handleAdminDashboardPress = () => {
-    navigation.navigate(canAccessAdmin ? 'AdminDashboard' : 'AdminLogin');
+    if (!canAccessAdmin) return;
+    navigation.navigate('AdminDashboard');
     collapseSidebar();
   };
 
@@ -180,11 +182,11 @@ export default function NotificationsScreen({ navigation }) {
     setLogoutVisible(true);
   };
 
-  const confirmLogoutNow = () => {
+  const confirmLogoutNow = async () => {
     setLogoutVisible(false);
-    clearAuth();
+    await clearAuth();
     clearAdminAuth();
-    navigation.reset({ index: 0, routes: [{ name: 'Landing' }] });
+    navigation.reset({ index: 0, routes: [{ name: adminView ? 'SignIn' : 'Landing' }] });
   };
 
   const subtitle = useMemo(() => {

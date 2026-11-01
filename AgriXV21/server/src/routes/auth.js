@@ -5,6 +5,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { getSupabaseAdmin, newObjectId } from '../lib/db.js';
 import { generateOtpCode, generateSecureToken, hashCode } from '../lib/otp.js';
 import { sendPasswordResetEmail, sendRegistrationOtpEmail } from '../lib/emailjs.js';
+import { createWelcomeNotification } from './notifications.js';
 import { parseBool, userRowToPublic } from '../lib/supabaseMaps.js';
 import {
   isValidEmail,
@@ -141,6 +142,45 @@ function buildResetLink(req, token) {
   return `${base}${joiner}resetToken=${encodeURIComponent(String(token || ''))}`;
 }
 
+router.post('/check-registration', async (req, res) => {
+  try {
+    const em = normalizeEmail(req.body?.email);
+    const ph = normalizePhone(req.body?.phone);
+    const fieldErrors = {};
+    if (!isValidEmail(em)) fieldErrors.email = 'Enter a valid email address';
+    else if (!isAllowedRegistrationEmail(em)) fieldErrors.email = 'Use a Gmail, Yahoo, or Outlook email address';
+    if (!ph) fieldErrors.phone = 'Phone number is required';
+    else if (!isValidPhone(ph)) fieldErrors.phone = 'Phone number is invalid';
+    if (Object.keys(fieldErrors).length) {
+      return res.status(400).json({ error: 'Validation failed', fieldErrors });
+    }
+
+    const supabase = getSupabaseAdmin();
+    const { data: existing, error } = await supabase
+      .from('users')
+      .select('_id,email,phone')
+      .or(`email.ilike.${em},phone.eq.${ph}`)
+      .limit(10);
+    if (error) return res.status(500).json({ error: 'Could not check registration details' });
+
+    const fieldErrorsFound = {};
+    for (const row of existing || []) {
+      if (String(row.email || '').trim().toLowerCase() === em.toLowerCase()) {
+        fieldErrorsFound.email = 'Email already registered';
+      }
+      if (String(row.phone || '').trim() === ph) {
+        fieldErrorsFound.phone = 'Phone number already registered';
+      }
+    }
+    if (Object.keys(fieldErrorsFound).length) {
+      return res.status(409).json({ error: Object.values(fieldErrorsFound).join(' and '), fieldErrors: fieldErrorsFound });
+    }
+    return res.json({ available: true });
+  } catch (_err) {
+    return res.status(500).json({ error: 'Could not check registration details' });
+  }
+});
+
 router.post('/register', async (req, res) => {
   try {
     const { firstName, lastName, phone, email, password, address, dateOfBirth, gender } = req.body || {};
@@ -220,6 +260,8 @@ router.post('/register', async (req, res) => {
       .from('users')
       .insert({
         _id: newObjectId(),
+        createdAt: nowIso,
+        updatedAt: nowIso,
         firstName: first,
         lastName: last,
         phone: ph,
@@ -229,7 +271,7 @@ router.post('/register', async (req, res) => {
         email: em,
         passwordHash,
         isAdmin: false,
-        role: 'farmer',
+        role: 'user',
         emailVerified: skipEmail,
         phoneVerified: true,
         ...(!skipEmail ? {
@@ -250,6 +292,9 @@ router.post('/register', async (req, res) => {
       }
       return res.status(500).json({ error: 'Registration failed' });
     }
+
+    try { await createWelcomeNotification(user._id); }
+    catch (notificationErr) { console.error('Could not create signup welcome notification:', notificationErr?.message || notificationErr); }
 
     if (skipEmail) {
       const token = signToken(user);
@@ -361,6 +406,8 @@ router.post('/start-verification', async (req, res) => {
     const otpCode = skipEmail ? '' : generateOtpCode();
     const payload = {
       _id: targetId,
+      ...(!matchedExisting ? { createdAt: nowIso } : {}),
+      updatedAt: nowIso,
       email: em,
       firstName: first || '',
       lastName: last || '',
@@ -369,7 +416,7 @@ router.post('/start-verification', async (req, res) => {
       dateOfBirth: dob,
       gender: gen || 'rather_not_say',
       isAdmin: false,
-      role: 'farmer',
+      role: 'user',
       emailVerified: skipEmail,
       phoneVerified: true,
       ...(!skipEmail ? {
@@ -406,6 +453,11 @@ router.post('/start-verification', async (req, res) => {
         code,
         ...(process.env.NODE_ENV !== 'production' ? { details: message.slice(0, 600) } : {}),
       });
+    }
+
+    if (!matchedExisting) {
+      try { await createWelcomeNotification(user._id); }
+      catch (notificationErr) { console.error('Could not create signup welcome notification:', notificationErr?.message || notificationErr); }
     }
 
     if (skipEmail) {
@@ -480,6 +532,8 @@ router.post('/sync-password', requireAuth, async (req, res) => {
       }
       const payload = {
         _id: String(req.userId),
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
         email: authEmail,
         firstName: '',
         lastName: '',
@@ -489,7 +543,7 @@ router.post('/sync-password', requireAuth, async (req, res) => {
         gender: 'rather_not_say',
         passwordHash,
         isAdmin: false,
-        role: 'farmer',
+        role: 'user',
         emailVerified: false,
         phoneVerified: true,
       };
@@ -498,7 +552,7 @@ router.post('/sync-password', requireAuth, async (req, res) => {
       return res.json({ ok: true });
     }
 
-    const { error: updateErr } = await supabase.from('users').update({ passwordHash }).eq('_id', user._id);
+    const { error: updateErr } = await supabase.from('users').update({ passwordHash, updatedAt: new Date().toISOString() }).eq('_id', user._id);
     if (updateErr) return res.status(500).json({ error: 'Failed to sync password' });
     return res.json({ ok: true });
   } catch (_err) {
@@ -666,6 +720,7 @@ router.post('/verify-otp', async (req, res) => {
       .from('users')
       .update({
         emailVerified: true,
+        updatedAt: new Date().toISOString(),
         'emailVerification.codeHash': '',
         'emailVerification.expiresAt': null,
         'emailVerification.attempts': 0,
@@ -969,6 +1024,7 @@ router.post('/reset-password', async (req, res) => {
       .from('users')
       .update({
         passwordHash,
+        updatedAt: new Date().toISOString(),
         'passwordReset.tokenHash': '',
         'passwordReset.expiresAt': null,
         'passwordReset.lastSentAt': null,
@@ -1005,6 +1061,7 @@ router.get('/me', requireAuth, async (req, res) => {
         const meta = req.authUser.user_metadata && typeof req.authUser.user_metadata === 'object' ? req.authUser.user_metadata : {};
         const payload = {
           _id: newObjectId(),
+          createdAt: new Date().toISOString(),
           email: authEmail,
           firstName: String(meta.firstName || meta.first_name || '').trim(),
           lastName: String(meta.lastName || meta.last_name || '').trim(),
@@ -1014,7 +1071,7 @@ router.get('/me', requireAuth, async (req, res) => {
           gender: String(meta.gender || '').trim() || 'rather_not_say',
           avatarUrl: String(meta.avatarUrl || meta.avatar_url || '').trim(),
           isAdmin: Boolean(meta.isAdmin || meta.is_admin),
-          role: String(meta.role || '').trim() || 'farmer',
+          role: Boolean(meta.isAdmin || meta.is_admin) ? 'admin' : 'user',
           emailVerified: false,
           phoneVerified: Boolean(meta.phoneVerified || meta.phone_verified),
           passwordHash: '',

@@ -14,7 +14,7 @@ import ConfirmDialog from '../components/ConfirmDialog';
 import FarmerDashboard from '../components/dashboard/FarmerDashboard';
 import { Bell, Moon, Sun, User } from '../components/Icons';
 import { listNotifications, subscribeNotifications } from '../lib/notifications';
-import { addSensorReading, getIotSocketUrl, getLatestSensorReading, getLatestSnapshot, isReadingFresh, startSensorSync, subscribeSensors } from '../lib/sensors';
+import { addSensorReading, getIotSocketUrl, getLatestSensorReading, isReadingFresh, startSensorSync, subscribeSensors } from '../lib/sensors';
 import { getThemeMode, setThemeMode as setAppTheme, subscribeTheme } from '../lib/themePref';
 
 export default function DashboardScreen({ navigation, route }) {
@@ -105,13 +105,15 @@ export default function DashboardScreen({ navigation, route }) {
 
   const handleAdminPress = () => {
     const can = hasAdminPanelAccess();
-    navigation.navigate(can ? 'AdminUsers' : 'AdminLogin');
+    if (!can) return;
+    navigation.navigate('AdminUsers');
     collapseSidebar();
   };
 
   const handleAdminDashboardPress = () => {
     const can = hasAdminPanelAccess();
-    navigation.navigate(can ? 'AdminDashboard' : 'AdminLogin');
+    if (!can) return;
+    navigation.navigate('AdminDashboard');
     collapseSidebar();
   };
 
@@ -121,7 +123,6 @@ export default function DashboardScreen({ navigation, route }) {
   const adminActivity = useMemo(() => (canAccessAdmin ? listAdminActivity(6) : []), [canAccessAdmin]);
   const [unreadCount, setUnreadCount] = useState(() => listNotifications().filter((n) => !n.read).length);
   const [latestReading, setLatestReading] = useState(() => getLatestSensorReading());
-  const [latestSnapshot, setLatestSnapshotState] = useState(() => getLatestSnapshot());
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [onboardingStep, setOnboardingStep] = useState(0);
 
@@ -161,7 +162,6 @@ export default function DashboardScreen({ navigation, route }) {
   useEffect(() => {
     const refresh = () => {
       setLatestReading(getLatestSensorReading());
-      setLatestSnapshotState(getLatestSnapshot());
       setIotSocketUrlState(getIotSocketUrl());
     };
     const unsub = subscribeSensors(refresh);
@@ -476,7 +476,6 @@ export default function DashboardScreen({ navigation, route }) {
   const monitoringCapabilities = [
     { title: 'Real-time humidity and temperature', body: 'Monitor storage conditions continuously to reduce mold risk.' },
     { title: 'Bean moisture tracking', body: 'Track bean moisture levels to support safer storage decisions.' },
-    { title: 'Camera-based verification', body: 'Review snapshots for visual confirmation of storage conditions.' },
     { title: 'Threshold alerts', body: 'Receive notifications when readings exceed safe limits.' },
   ];
 
@@ -687,7 +686,7 @@ export default function DashboardScreen({ navigation, route }) {
                 <Text style={{ marginTop: 8, fontSize: 13, fontWeight: '700', color: theme.colors.textMuted, lineHeight: 18 }}>
                   {[
                     'Check the Dashboard cards for the latest humidity, temperature, soil pH, and soil moisture readings.',
-                    'Use Monitoring for trends, thresholds, and snapshots to verify storage conditions.',
+                    'Use Monitoring to review sensor trends and thresholds.',
                     'Use Notifications for alerts. Acknowledge important updates and mute noisy categories for 1 hour.',
                     'Update your Profile anytime. Changes and verification steps will still notify you.',
                   ][onboardingStep]}
@@ -866,7 +865,7 @@ export default function DashboardScreen({ navigation, route }) {
                           <>
                             <Text style={[styles.pageTitle, isDark && { color: '#F9FAFB' }]}>Dashboard</Text>
                             <Text style={[styles.pageSubtitle, isDark && { color: '#9CA3AF' }]}>
-                              Track storage and field conditions in one place—real-time readings, camera verification, and alerts.
+                              Track storage and field conditions in one place—real-time readings and alerts.
                             </Text>
                             <View style={{ flexDirection: 'row', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
                               <View
@@ -959,28 +958,6 @@ export default function DashboardScreen({ navigation, route }) {
                               </HoverPressable>
                             </View>
 
-                            <HoverPressable style={[styles.card, isDark && { backgroundColor: 'rgba(15, 23, 42, 0.85)', borderColor: '#1F2937' }]} hoverStyle={{ transform: [{ translateY: -6 }, { scale: 1.005 }] }}>
-                              <View style={styles.cardHeaderRow}>
-                                <View style={[styles.cardAccent, { backgroundColor: theme.colors.accentCoffee }]} />
-                                <Text style={[styles.cardTitle, isDark && { color: '#F9FAFB' }]}>Camera Verification</Text>
-                              </View>
-                              <Text style={[styles.cardText, isDark && { color: '#9CA3AF' }]}>
-                                Use snapshots as visual confirmation alongside sensor readings, especially when conditions indicate possible mold
-                                risk in storage environments.
-                              </Text>
-                              {latestSnapshot?.url ? (
-                                <View style={{ marginTop: 12 }}>
-                                  <Image source={{ uri: latestSnapshot.url }} style={{ width: '100%', height: 160, borderRadius: 14, borderWidth: 1, borderColor: theme.colors.border }} />
-                                  <Text style={{ marginTop: 10, fontSize: 12, fontWeight: '700', color: isDark ? '#9CA3AF' : theme.colors.textMuted }}>
-                                    Latest: {new Date(latestSnapshot.createdAt).toLocaleString()}
-                                  </Text>
-                                </View>
-                              ) : (
-                                <Text style={{ marginTop: 10, fontSize: 12, fontWeight: '700', color: isDark ? '#9CA3AF' : theme.colors.textMuted }}>
-                                  No snapshot yet. Go to Monitoring to upload a snapshot.
-                                </Text>
-                              )}
-                            </HoverPressable>
                           </>
                         )}
                       </View>

@@ -10,9 +10,22 @@ export function validateEmail(email) {
   return { ok, value: normalized };
 }
 
-export function validateRegistrationEmail(email) {
+const BLOCKED_EMAIL_DOMAINS = ['example.com', 'test.com', 'sample.com'];
+const PLACEHOLDER_EMAIL_MESSAGE = 'Please enter a valid, active email address (placeholder emails are not allowed).';
+
+export function validateActiveEmail(email) {
   const base = validateEmail(email);
   if (!base.ok) return { ok: false, value: base.value, message: 'Enter a valid email address' };
+  const domain = base.value.split('@')[1] || '';
+  const isPlaceholder = BLOCKED_EMAIL_DOMAINS.some((blocked) => domain === blocked || domain.endsWith(`.${blocked}`));
+  return isPlaceholder
+    ? { ok: false, value: base.value, message: PLACEHOLDER_EMAIL_MESSAGE }
+    : { ok: true, value: base.value };
+}
+
+export function validateRegistrationEmail(email) {
+  const base = validateActiveEmail(email);
+  if (!base.ok) return base;
   const domain = base.value.split('@')[1] || '';
   const allowed = new Set(['gmail.com', 'yahoo.com', 'outlook.com']);
   if (!allowed.has(domain)) {
@@ -29,8 +42,8 @@ export function validateName(name, label) {
   if (value.length < 2) {
     return { ok: false, value, message: `${label} must be at least 2 characters` };
   }
-  if (value.length > 35) {
-    return { ok: false, value, message: `${label} must be 35 characters or less` };
+  if (value.length > 36) {
+    return { ok: false, value, message: '36 is the maximum characters required' };
   }
   // Relaxed validation: allow any printable characters, not just English letters
   // Just check it doesn't contain mostly special symbols if needed, but for now length is enough safety
@@ -50,8 +63,10 @@ export function validateDateOfBirth(value) {
   if (!raw) return { ok: false, value: '', message: 'Date of birth is required' };
   if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return { ok: false, value: raw, message: 'Date of birth is invalid' };
   const parsed = new Date(`${raw}T00:00:00.000Z`);
-  if (!Number.isFinite(parsed.getTime())) return { ok: false, value: raw, message: 'Date of birth is invalid' };
-  if (parsed.getTime() > Date.now()) return { ok: false, value: raw, message: 'Date of birth cannot be in the future' };
+  if (!Number.isFinite(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== raw) return { ok: false, value: raw, message: 'Date of birth is invalid' };
+  const now = new Date();
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  if (raw > today) return { ok: false, value: raw, message: 'Birthdate cannot be a future date.' };
 
   // 18+ Check
   const cutoff = new Date();
@@ -171,6 +186,7 @@ export function validatePhoneE164(phoneE164, { required, countryCode, phoneNumbe
   if (countryCode) {
     const rules = getPhoneRules(countryCode);
     const local = normalizeDigits(phoneNumber);
+    if (local.length < 11) return { ok: false, value, message: 'Phone number is incomplete. Enter at least 11 digits.' };
     if (!rules.validateLocal(local)) {
       return { ok: false, value, message: rules.message };
     }

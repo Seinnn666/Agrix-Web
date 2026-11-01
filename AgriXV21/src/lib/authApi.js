@@ -160,16 +160,16 @@ function mapSupabaseUserToPublicUser(authUser) {
     id,
     firstName: String(meta.firstName || meta.first_name || '').trim(),
     lastName: String(meta.lastName || meta.last_name || '').trim(),
-    phone: String(meta.phone || '').trim(),
+    phone: String(authUser?.phone || meta.phone || '').trim(),
     email,
     address: String(meta.address || '').trim(),
     dateOfBirth: String(meta.dateOfBirth || meta.date_of_birth || '').trim(),
     gender: String(meta.gender || '').trim() || 'rather_not_say',
     avatarUrl: String(meta.avatarUrl || meta.avatar_url || '').trim(),
     emailVerified: Boolean(authUser?.email_confirmed_at),
-    phoneVerified: Boolean(meta.phoneVerified || meta.phone_verified),
+    phoneVerified: Boolean(authUser?.phone_confirmed_at || meta.phoneVerified || meta.phone_verified),
     isAdmin: Boolean(meta.isAdmin || meta.is_admin),
-    role: String(meta.role || '').trim() || 'farmer',
+    role: Boolean(meta.isAdmin || meta.is_admin) ? 'admin' : 'user',
   };
 }
 
@@ -190,20 +190,99 @@ export function loadAuth() {
   return { token: '', user: null };
 }
 
-export async function getAuthToken() {
-  if (!isWeb()) {
-    const { token } = loadAuth();
-    return token;
+function isLegacyApiToken(token) {
+  try {
+    const payload = String(token || '').split('.')[1];
+    if (!payload || typeof atob !== 'function') return false;
+    const normalized = payload.replace(/-/g, '+').replace(/_/g, '/');
+    const claims = JSON.parse(atob(normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=')));
+    const issuer = String(claims?.iss || '');
+    return Boolean(claims?.sub) && !claims?.session_id && !issuer.includes('/auth/v1');
+  } catch (_err) {
+    return false;
   }
-  const supabase = getSupabaseBrowser();
-  const { data, error } = await supabase.auth.getSession();
-  if (error) return '';
-  const token = String(data?.session?.access_token || '');
-  return token;
+}
+
+async function getAuthTokens() {
+  if (isWeb()) {
+    try {
+      const supabase = getSupabaseBrowser();
+      const { data, error } = await supabase.auth.getSession();
+      const session = !error ? data?.session : null;
+      const sessionToken = String(session?.access_token || '');
+      const expiresAt = Number(session?.expires_at || 0) * 1000;
+
+      if (sessionToken && (!expiresAt || expiresAt > Date.now() + 30_000)) return [sessionToken];
+      if (sessionToken) {
+        const { data: refreshed, error: refreshError } = await supabase.auth.refreshSession();
+        const refreshedToken = String(refreshed?.session?.access_token || '');
+        if (!refreshError && refreshedToken) return [refreshedToken];
+        if (expiresAt > Date.now()) return [sessionToken];
+        return [];
+      }
+    } catch (_err) {
+    }
+
+    // Do not send a cached Supabase JWT after Supabase has lost its session.
+    // A legacy API JWT is distinguishable and remains supported during migration.
+    const cachedToken = String(loadAuth()?.token || '');
+    return isLegacyApiToken(cachedToken) ? [cachedToken] : [];
+  }
+
+  const cachedToken = String(loadAuth()?.token || '');
+  return cachedToken ? [cachedToken] : [];
+}
+
+export async function getAuthToken() {
+  return (await getAuthTokens())[0] || '';
+}
+
+async function fetchWithAuthFallback(url, options) {
+  // Resolve the latest persisted Supabase session at request time so all API
+  // calls (including notifications and multipart uploads) share auth headers.
+  const candidates = await getAuthTokens();
+  if (!candidates.length) candidates.push('');
+  let response;
+  for (let index = 0; index < candidates.length; index += 1) {
+    const token = candidates[index];
+    response = await fetch(url, {
+      ...options,
+      headers: {
+        ...(options?.headers || {}),
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+    });
+    if (response.status !== 401) return response;
+  }
+
+  // Access tokens can expire while a browser tab is asleep. Give Supabase one
+  // chance to rotate the token, then retry the same request without signing
+  // the user out if refresh is unavailable or rejected.
+  if (response?.status === 401 && isWeb()) {
+    try {
+      const supabase = getSupabaseBrowser();
+      const { data, error } = await supabase.auth.refreshSession();
+      const refreshedToken = String(data?.session?.access_token || '');
+      if (!error && refreshedToken && !candidates.includes(refreshedToken)) {
+        const refreshedUser = data?.user || data?.session?.user;
+        saveAuth(refreshedToken, refreshedUser ? mapSupabaseUserToPublicUser(refreshedUser) : loadAuth()?.user || null);
+        response = await fetch(url, {
+          ...options,
+          headers: {
+            ...(options?.headers || {}),
+            Authorization: `Bearer ${refreshedToken}`,
+          },
+        });
+      }
+    } catch (_err) {
+      // Keep the existing session and surface the original API response.
+    }
+  }
+
+  return response;
 }
 
 async function requestJson(path, options) {
-  const token = await getAuthToken();
   let lastNetworkErr;
   let lastErr;
 
@@ -213,13 +292,12 @@ async function requestJson(path, options) {
 
     let res;
     try {
-      res = await fetch(`${baseUrl}${path}`, {
+      res = await fetchWithAuthFallback(`${baseUrl}${path}`, {
+        ...options,
         headers: {
           'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
           ...(options?.headers || {}),
         },
-        ...options,
       });
     } catch (err) {
       lastNetworkErr = err;
@@ -242,13 +320,21 @@ async function requestJson(path, options) {
 
     if (!looksJson || data === null) {
       if ((res.status === 404 || res.status === 502 || res.status === 503) && hasNext) continue;
+      if (res.status === 401) {
+        const authError = new Error('The profile API rejected the request (401).');
+        authError.code = 'API_AUTH_REJECTED';
+        throw authError;
+      }
       const message = res.status === 404 ? 'API endpoint not found' : 'Request failed';
       lastErr = new Error(message);
       throw lastErr;
     }
 
-    const message = data?.error || 'Request failed';
+    const message = res.status === 401
+      ? 'The profile API rejected the request (401).'
+      : (data?.error || 'Request failed');
     const err = new Error(message);
+    if (res.status === 401) err.code = 'API_AUTH_REJECTED';
     if (data?.fieldErrors) err.fieldErrors = data.fieldErrors;
     if (data?.code) err.code = data.code;
     if (typeof data?.retryAfterSeconds === 'number') err.retryAfterSeconds = data.retryAfterSeconds;
@@ -264,6 +350,10 @@ async function requestJson(path, options) {
   throw lastErr || new Error(`Cannot reach API. Tried: ${API_BASE_URLS.join(', ')}`);
 }
 
+export async function fetchUserNotifications() {
+  return requestJson('/notifications', { method: 'GET' });
+}
+
 export async function registerUser(payload) {
   if (!isWeb()) {
     return requestJson('/auth/register', {
@@ -275,6 +365,10 @@ export async function registerUser(payload) {
   const supabase = getSupabaseBrowser();
   const email = String(payload?.email || '').trim();
   const password = String(payload?.password || '').trim();
+  await requestJson('/auth/check-registration', {
+    method: 'POST',
+    body: JSON.stringify({ email, phone: payload?.phone }),
+  });
   const options = {
     data: {
       firstName: payload?.firstName,
@@ -283,12 +377,15 @@ export async function registerUser(payload) {
       address: payload?.address,
       dateOfBirth: payload?.dateOfBirth,
       gender: payload?.gender,
-      role: payload?.role || 'farmer',
+      role: 'user',
     },
   };
   const { data, error } = await supabase.auth.signUp({ email, password, options });
   if (error) {
-    const err = new Error(error.message || 'Registration failed');
+    const message = /already registered|already exists/i.test(String(error.message || ''))
+      ? 'This email already has an account. Sign in or use password reset to recover it.'
+      : error.message || 'Registration failed';
+    const err = new Error(message);
     throw err;
   }
 
@@ -326,6 +423,20 @@ export async function loginUser(payload) {
   const password = String(payload?.password || '').trim();
   const { data, error } = await supabase.auth.signInWithPassword({ email, password });
   if (error) {
+    if (/invalid login credentials|user not found|email not confirmed/i.test(String(error.message || ''))) {
+      try {
+        const fallback = await requestJson('/auth/login', {
+          method: 'POST',
+          body: JSON.stringify({ email, password }),
+        });
+        const token = String(fallback?.token || '');
+        if (token && fallback?.user) {
+          saveAuth(token, fallback.user);
+          return fallback;
+        }
+      } catch (_fallbackError) {
+      }
+    }
     const msg = String(error.message || 'Sign in failed');
     const err = new Error(msg);
     if (/email not confirmed/i.test(msg)) err.code = 'EMAIL_NOT_CONFIRMED';
@@ -435,11 +546,18 @@ export async function getMe() {
     return await requestJson('/auth/me', { method: 'GET' });
   } catch (err) {
     const message = String(err?.message || '');
-    if (isWeb() && message.startsWith('Cannot reach API')) {
+    if (isWeb() && (message.startsWith('Cannot reach API') || err?.code === 'API_AUTH_REJECTED')) {
       try {
         const supabase = getSupabaseBrowser();
         const { data } = await supabase.auth.getUser();
-        if (data?.user) return { user: mapSupabaseUserToPublicUser(data.user) };
+        if (data?.user) {
+          const mapped = mapSupabaseUserToPublicUser(data.user);
+          const cached = loadAuth()?.user || {};
+          for (const key of ['firstName', 'lastName', 'phone', 'email', 'address', 'dateOfBirth', 'gender', 'avatarUrl']) {
+            if (!mapped[key]) mapped[key] = cached[key] || '';
+          }
+          return { user: { ...cached, ...mapped } };
+        }
       } catch (_err) {
       }
       const cached = loadAuth()?.user;
@@ -457,47 +575,160 @@ export async function updateMe(payload) {
     });
   } catch (err) {
     const message = String(err?.message || '');
-    if (isWeb() && message.startsWith('Cannot reach API')) {
-      const nextMeta = {
-        firstName: String(payload?.firstName || '').trim(),
-        lastName: String(payload?.lastName || '').trim(),
-        address: String(payload?.address || '').trim(),
-        dateOfBirth: String(payload?.dateOfBirth || '').trim(),
-        gender: String(payload?.gender || '').trim(),
-      };
+    let directUpdateError = null;
+    if (isWeb() && (message.startsWith('Cannot reach API') || err?.code === 'API_AUTH_REJECTED')) {
       try {
         const supabase = getSupabaseBrowser();
+        const { data: sessionData } = await supabase.auth.getSession();
+        if (!sessionData?.session?.access_token) throw err;
+        const currentMeta = sessionData.session.user?.user_metadata || {};
+        const nextMeta = { ...currentMeta };
+        const dbUpdate = { updatedAt: new Date().toISOString() };
+        for (const key of ['firstName', 'lastName', 'address', 'dateOfBirth', 'gender']) {
+          if (Object.prototype.hasOwnProperty.call(payload || {}, key)) {
+            nextMeta[key] = String(payload[key] ?? '').trim();
+            dbUpdate[key] = nextMeta[key];
+          }
+        }
+        const profileEmail = String(sessionData.session.user?.email || '').trim();
+        if (profileEmail) {
+          // Keep the application profile row in sync when its RLS policy allows
+          // the signed-in user to update their own record.
+          await supabase.from('users').update(dbUpdate).ilike('email', profileEmail);
+        }
         const { data, error } = await supabase.auth.updateUser({ data: nextMeta });
         if (error) throw new Error(String(error?.message || 'Failed to update profile'));
-        if (data?.user) return { user: mapSupabaseUserToPublicUser(data.user) };
+        if (data?.user) {
+          const user = { ...(loadAuth()?.user || {}), ...mapSupabaseUserToPublicUser(data.user) };
+          saveAuth(sessionData.session.access_token, user);
+          return { user };
+        }
         const refreshed = await supabase.auth.getUser();
-        if (refreshed?.data?.user) return { user: mapSupabaseUserToPublicUser(refreshed.data.user) };
-      } catch (_err) {
+        if (refreshed?.data?.user) {
+          const user = { ...(loadAuth()?.user || {}), ...mapSupabaseUserToPublicUser(refreshed.data.user) };
+          saveAuth(sessionData.session.access_token, user);
+          return { user };
+        }
+      } catch (fallbackError) {
+        directUpdateError = fallbackError;
       }
     }
-    throw err;
+    throw directUpdateError || err;
   }
 }
 
 export async function requestUpdateOtp(payload) {
-  return requestJson('/users/me/request-update', {
-    method: 'POST',
-    body: JSON.stringify(payload),
-  });
+  try {
+    return await requestJson('/users/me/request-update', { method: 'POST', body: JSON.stringify(payload) });
+  } catch (err) {
+    if (!isWeb() || (err?.code !== 'API_AUTH_REJECTED' && !String(err?.message || '').startsWith('Cannot reach API'))) throw err;
+    const supabase = getSupabaseBrowser();
+    const { data: sessionData } = await supabase.auth.getSession();
+    if (!sessionData?.session?.access_token) throw err;
+    const type = String(payload?.type || '');
+    const value = String(payload?.value || '').trim();
+    if (type === 'email') {
+      const { error } = await supabase.auth.updateUser({ email: value });
+      if (error) throw new Error(error.message || 'Could not request email verification');
+    } else if (type === 'phone') {
+      const { error } = await supabase.auth.updateUser({ phone: value });
+      if (error) throw new Error(error.message || 'Could not request phone verification');
+    } else throw err;
+    pendingSupabaseProfileUpdate = { type, value };
+    return { ok: true, otpSent: true };
+  }
 }
 
+let pendingSupabaseProfileUpdate = null;
+
+
 export async function verifyUpdateOtp(payload) {
-  return requestJson('/users/me/verify-update', {
-    method: 'POST',
-    body: JSON.stringify(payload),
+  try {
+    return await requestJson('/users/me/verify-update', { method: 'POST', body: JSON.stringify(payload) });
+  } catch (err) {
+    if (!isWeb() || !pendingSupabaseProfileUpdate || (err?.code !== 'API_AUTH_REJECTED' && !String(err?.message || '').startsWith('Cannot reach API'))) throw err;
+    const supabase = getSupabaseBrowser();
+    const { type, value } = pendingSupabaseProfileUpdate;
+    const { data, error } = await supabase.auth.verifyOtp({
+      [type]: value,
+      token: String(payload?.otp || ''),
+      type: type === 'email' ? 'email_change' : 'phone_change',
+    });
+    if (error) throw new Error(error.message || 'Verification failed');
+    const authUser = data?.user || (await supabase.auth.getUser()).data?.user;
+    if (!authUser) throw new Error('Verification completed, but the updated profile could not be loaded');
+    pendingSupabaseProfileUpdate = null;
+    const { data: sessionData } = await supabase.auth.getSession();
+    const user = { ...(loadAuth()?.user || {}), ...mapSupabaseUserToPublicUser(authUser) };
+    if (sessionData?.session?.access_token) saveAuth(sessionData.session.access_token, user);
+    return { user };
+  }
+}
+
+async function getFreshUploadTokens() {
+  if (!isWeb()) return getAuthTokens();
+
+  const supabase = getSupabaseBrowser();
+  const { data, error } = await supabase.auth.getSession();
+  const session = !error ? data?.session : null;
+  const token = String(session?.access_token || '');
+  const expiresAt = Number(session?.expires_at || 0) * 1000;
+
+  // Refresh before starting the upload if the session token is expired or
+  // about to expire. Do not clear the user's session if refresh fails.
+  if (token && (!expiresAt || expiresAt > Date.now() + 30_000)) return [token];
+
+  const { data: refreshed, error: refreshError } = await supabase.auth.refreshSession();
+  const refreshedToken = String(refreshed?.session?.access_token || '');
+  if (!refreshError && refreshedToken) return [refreshedToken];
+  const cachedToken = String(loadAuth()?.token || '');
+  return isLegacyApiToken(cachedToken) ? [cachedToken] : [];
+}
+
+async function uploadAvatarDirectToSupabase(file, filename) {
+  const supabase = getSupabaseBrowser();
+  const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+  if (sessionError || !sessionData?.session?.access_token) {
+    throw new Error('Your Supabase session is unavailable. The profile photo was not uploaded.');
+  }
+  const authUser = sessionData.session.user;
+  if (!authUser?.id) throw new Error('Your Supabase session has no user ID.');
+
+  const rawExt = String(filename || '').split('.').pop() || '';
+  const safeExt = rawExt.replace(/[^a-z0-9]/gi, '').toLowerCase() || (String(file?.type || '').includes('png') ? 'png' : 'jpg');
+  const objectPath = `${authUser.id}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${safeExt}`;
+  const bucket = supabase.storage.from('avatars');
+  const { error: uploadErr } = await bucket.upload(objectPath, file, {
+    upsert: true,
+    contentType: String(file?.type || '') || undefined,
+    cacheControl: '3600',
   });
+  if (uploadErr) throw new Error(`Supabase photo upload failed: ${uploadErr.message || 'Storage rejected the upload'}`);
+
+  let avatarUrl = '';
+  const { data: publicData } = bucket.getPublicUrl(objectPath);
+  avatarUrl = String(publicData?.publicUrl || '').trim();
+  if (!avatarUrl) {
+    const { data: signedData, error: signedError } = await bucket.createSignedUrl(objectPath, 60 * 60 * 24 * 365);
+    if (signedError) throw new Error(`Photo uploaded, but its URL could not be created: ${signedError.message}`);
+    avatarUrl = String(signedData?.signedUrl || '').trim();
+  }
+  if (!avatarUrl) throw new Error('Photo uploaded, but Supabase did not return an image URL.');
+
+  const { data: updated, error: updateError } = await supabase.auth.updateUser({ data: { avatarUrl } });
+  if (updateError) throw new Error(`Photo uploaded, but the profile could not be updated: ${updateError.message}`);
+  const user = updated?.user || (await supabase.auth.getUser()).data?.user;
+  if (!user) throw new Error('Photo uploaded, but the updated profile could not be loaded.');
+  if (user.email) {
+    // The backend normally updates this row. Mirror that behavior for the
+    // direct Storage fallback when the user's table policy permits it.
+    await supabase.from('users').update({ avatarUrl, updatedAt: new Date().toISOString() }).ilike('email', user.email);
+  }
+  saveAuth(sessionData.session.access_token, { ...(loadAuth()?.user || {}), ...mapSupabaseUserToPublicUser(user) });
+  return { user: { ...(loadAuth()?.user || {}), ...mapSupabaseUserToPublicUser(user) } };
 }
 
 export async function uploadAvatar(file) {
-  const token = await getAuthToken();
-  if (!token) {
-    throw new Error('Unauthorized');
-  }
   if (!file) {
     throw new Error('Select an image to upload');
   }
@@ -520,14 +751,21 @@ export async function uploadAvatar(file) {
 
     let res;
     try {
-      res = await fetch(`${baseUrl}/users/me/avatar`, {
+      // Read the active Supabase session immediately before each upload fetch
+      // so this multipart request uses the latest access token.
+      const tokens = await getFreshUploadTokens();
+      if (!tokens.length) {
+        const authError = new Error('A current Supabase session is required to upload a profile photo.');
+        authError.code = 'API_AUTH_REJECTED';
+        throw authError;
+      }
+      res = await fetchWithAuthFallback(`${baseUrl}/users/me/avatar`, {
         method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+        headers: {},
         body: formData,
       });
     } catch (err) {
+      if (err?.code === 'API_AUTH_REJECTED') throw err;
       lastNetworkErr = err;
       lastErr = err;
       if (hasNext) continue;
@@ -548,87 +786,83 @@ export async function uploadAvatar(file) {
 
     if (!looksJson || data === null) {
       if ((res.status === 404 || res.status === 502 || res.status === 503) && hasNext) continue;
+      if (res.status === 401) {
+        try {
+          return await uploadAvatarDirectToSupabase(file, filename);
+        } catch (fallbackError) {
+          const authError = new Error(`Profile API rejected the request (401), and direct Supabase photo upload failed: ${fallbackError?.message || 'unknown error'}`);
+          authError.code = 'API_AUTH_REJECTED';
+          throw authError;
+        }
+      }
       const message = res.status === 404 ? 'API endpoint not found' : 'Upload failed';
       lastErr = new Error(message);
       throw lastErr;
     }
 
-    const message = data?.error || 'Upload failed';
+    const message = res.status === 401
+      ? 'The API rejected the login token (401).'
+      : (data?.error || 'Upload failed');
+    if (res.status === 401) {
+      try {
+        return await uploadAvatarDirectToSupabase(file, filename);
+      } catch (fallbackError) {
+        throw new Error(`Profile API rejected the request (401), and direct Supabase photo upload failed: ${fallbackError?.message || 'unknown error'}`);
+      }
+    }
     lastErr = new Error(message);
+    if (res.status === 401) lastErr.code = 'API_AUTH_REJECTED';
     throw lastErr;
   }
 
   if (lastNetworkErr) {
     if (isWeb()) {
       try {
-        const supabase = getSupabaseBrowser();
-        const { data: userData } = await supabase.auth.getUser();
-        const authUser = userData?.user;
-        if (!authUser) throw new Error('Unauthorized');
-
-        const rawExt = String(filename || '').split('.').pop() || '';
-        const safeExt = rawExt.replace(/[^a-z0-9]/gi, '').toLowerCase() || (String(file?.type || '').includes('png') ? 'png' : 'jpg');
-        const objectPath = `${String(authUser.id || 'user')}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${safeExt}`;
-
-        const bucket = supabase.storage.from('avatars');
-        const { error: uploadErr } = await bucket.upload(objectPath, file, {
-          upsert: true,
-          contentType: String(file?.type || '') || undefined,
-          cacheControl: '3600',
-        });
-        if (uploadErr) throw new Error(String(uploadErr?.message || 'Upload failed'));
-
-        let publicUrl = '';
-        try {
-          const { data } = bucket.getPublicUrl(objectPath);
-          publicUrl = String(data?.publicUrl || '').trim();
-        } catch (_err2) {
-        }
-        if (!publicUrl) {
-          const { data: signed, error: signedErr } = await bucket.createSignedUrl(objectPath, 60 * 60 * 24 * 365);
-          if (signedErr) throw new Error(String(signedErr?.message || 'Upload failed'));
-          publicUrl = String(signed?.signedUrl || '').trim();
-        }
-        if (!publicUrl) throw new Error('Upload failed');
-
-        const { data: updated, error: updateErr } = await supabase.auth.updateUser({ data: { avatarUrl: publicUrl } });
-        if (updateErr) throw new Error(String(updateErr?.message || 'Failed to update profile'));
-        if (updated?.user) return { user: mapSupabaseUserToPublicUser(updated.user) };
-
-        const refreshed = await supabase.auth.getUser();
-        if (refreshed?.data?.user) return { user: mapSupabaseUserToPublicUser(refreshed.data.user) };
+        return await uploadAvatarDirectToSupabase(file, filename);
       } catch (_err3) {
+        lastErr = _err3;
       }
     }
+    if (lastErr && String(lastErr.message || '').startsWith('Supabase')) throw lastErr;
     throw new Error(`Cannot reach API. Tried: ${API_BASE_URLS.join(', ')}`);
   }
   throw lastErr || new Error(`Cannot reach API. Tried: ${API_BASE_URLS.join(', ')}`);
 }
 
 export function saveAuth(token, user) {
+  let previousId = '';
   try {
     if (typeof window !== 'undefined' && window.localStorage) {
+      const previous = JSON.parse(window.localStorage.getItem('agrix_user') || 'null');
+      previousId = String(previous?.id || previous?._id || '');
       window.localStorage.setItem('agrix_token', token);
       window.localStorage.setItem('agrix_user', JSON.stringify(user));
+      const nextId = String(user?.id || user?._id || '');
+      if (previousId !== nextId) window.dispatchEvent(new CustomEvent('agrix:auth', { detail: { userId: nextId } }));
     }
   } catch (_err) {
   }
 }
 
 export async function clearAuth() {
+  let hadUser = false;
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      window.localStorage.removeItem('agrix_token');
+      hadUser = Boolean(window.localStorage.getItem('agrix_user'));
+      window.localStorage.removeItem('agrix_user');
+      if (hadUser) window.dispatchEvent(new CustomEvent('agrix:auth', { detail: { userId: '' } }));
+    }
+  } catch (_err) {
+  }
+  // Clear local app state immediately, then revoke the Supabase session.
+  // This prevents repeated inactivity checks from racing a slow signOut call.
   if (isWeb()) {
     try {
       const supabase = getSupabaseBrowser();
       await supabase.auth.signOut();
     } catch (_err) {
     }
-  }
-  try {
-    if (typeof window !== 'undefined' && window.localStorage) {
-      window.localStorage.removeItem('agrix_token');
-      window.localStorage.removeItem('agrix_user');
-    }
-  } catch (_err) {
   }
 }
 

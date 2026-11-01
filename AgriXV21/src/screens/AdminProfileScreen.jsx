@@ -11,7 +11,8 @@ import {
   Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { getAdminProfile, updateAdminProfile } from '../lib/adminApi';
+import { clearAdminAuth, getAdminProfile, updateAdminProfile } from '../lib/adminApi';
+import { clearAuth } from '../lib/authApi';
 import HoverPressable from '../components/HoverPressable';
 import AppFooter from '../components/AppFooter';
 import DateOfBirthPicker from '../components/DateOfBirthPicker';
@@ -263,7 +264,9 @@ export default function AdminProfileScreen({ navigation }) {
       resetForm(data);
     } catch (err) {
       if (err?.code === 'UNAUTHORIZED' || err?.code === 'SESSION_EXPIRED' || err?.code === 'FORBIDDEN') {
-        navigation.reset({ index: 0, routes: [{ name: 'AdminLogin' }] });
+        await clearAuth();
+        clearAdminAuth();
+        navigation.reset({ index: 0, routes: [{ name: 'SignIn' }] });
         return;
       }
       setError(err.message || 'Failed to load profile');

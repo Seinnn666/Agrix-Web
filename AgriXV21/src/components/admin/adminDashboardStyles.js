@@ -67,12 +67,6 @@ export const adminDashboardStyles = StyleSheet.create({
     color: theme.colors.brandDark,
     fontWeight: '700',
   },
-  sidebarFooter: {
-    padding: 24,
-    borderTopWidth: 1,
-    borderTopColor: theme.colors.border,
-  },
-  
   // Main Content Area
   contentArea: {
     flex: 1,
@@ -285,18 +279,44 @@ export const adminDashboardStyles = StyleSheet.create({
     fontWeight: '500',
   },
   
-  // Mobile Overlay
-  overlay: {
+  dropdownBackdrop: {
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.25)',
-    zIndex: 150,
+    backgroundColor: 'transparent',
+    zIndex: 100,
   },
-  mobileMenuButton: {
-    marginRight: 16,
-    padding: 8,
+  userMenuDropdown: {
+    position: 'absolute',
+    top: 80,
+    right: 20,
+    width: 248,
+    paddingVertical: 8,
+    backgroundColor: theme.colors.surface,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    borderRadius: theme.radius.card,
+    zIndex: 101,
+    elevation: 12,
+    ...theme.shadows.medium,
+  },
+  dropdownItem: {
+    minHeight: 46,
+    paddingHorizontal: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  dropdownItemText: {
+    color: theme.colors.text,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  dropdownDivider: {
+    height: 1,
+    marginVertical: 6,
+    backgroundColor: theme.colors.border,
   },
 });

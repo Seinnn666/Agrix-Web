@@ -131,6 +131,7 @@ router.put('/me', requireAuth, async (req, res) => {
       .update({
         firstName: updates.firstName,
         lastName: updates.lastName,
+        updatedAt: new Date().toISOString(),
         ...(Object.prototype.hasOwnProperty.call(updates, 'address') ? { address: updates.address } : {}),
         ...(Object.prototype.hasOwnProperty.call(updates, 'gender') ? { gender: updates.gender } : {}),
         ...(Object.prototype.hasOwnProperty.call(updates, 'dateOfBirth') ? { dateOfBirth: updates.dateOfBirth?.toISOString?.() || null } : {}),
@@ -169,28 +170,29 @@ router.post('/me/request-update', requireAuth, async (req, res) => {
     }
 
     const otpCode = generateOtpCode();
-    const updateVerification = {
-      codeHash: hashCode(otpCode),
-      expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(), // 10 mins
-      type: type,
-    };
-    const updates =
-      type === 'email'
-        ? { tempEmail: normalizedValue, 'updateVerification.codeHash': updateVerification.codeHash, 'updateVerification.expiresAt': updateVerification.expiresAt, 'updateVerification.type': updateVerification.type }
-        : { tempPhone: normalizedValue, 'updateVerification.codeHash': updateVerification.codeHash, 'updateVerification.expiresAt': updateVerification.expiresAt, 'updateVerification.type': updateVerification.type };
-    await supabase.from('users').update(updates).eq('_id', req.userId);
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+    const { error: pendingErr } = await supabase
+      .from('pending_user_updates')
+      .upsert({
+        user_id: String(req.userId),
+        update_type: type,
+        target_value: normalizedValue,
+        otp_hash: hashCode(otpCode),
+        expires_at: expiresAt,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'user_id' });
+    if (pendingErr) {
+      console.error('Failed to persist pending profile update', pendingErr);
+      return res.status(500).json({ error: 'Failed to save verification session. Please try again.' });
+    }
 
-    // Mock sending OTP
-    console.log(`[OTP] Sending ${type} update OTP to ${normalizedValue}: ${otpCode}`);
-    
-    // In real app, send email/SMS
     if (type === 'email') {
-       try {
-         await sendRegistrationOtpEmail({ toEmail: normalizedValue, otpCode });
-       } catch (err) {
-         console.error('Failed to send email OTP', err);
-         // proceed anyway for dev/demo if needed, or return error
-       }
+      try {
+        await sendRegistrationOtpEmail({ toEmail: normalizedValue, otpCode });
+      } catch (err) {
+        console.error('Failed to send email OTP', err);
+        return res.status(502).json({ error: 'Failed to send verification code. Please request a new OTP.' });
+      }
     }
 
     return res.json({ ok: true, message: `OTP sent to ${normalizedValue}` });
@@ -202,42 +204,64 @@ router.post('/me/request-update', requireAuth, async (req, res) => {
 
 router.post('/me/verify-update', requireAuth, async (req, res) => {
   try {
-    const { otp } = req.body;
+    const otp = String(req.body?.otp || '').trim();
+    if (!/^\d{6}$/.test(otp)) return res.status(400).json({ error: 'Enter the 6-digit verification code.' });
     const supabase = getSupabaseAdmin();
-    const { data: user, error: userErr } = await supabase.from('users').select('*').eq('_id', req.userId).maybeSingle();
-    if (userErr) return res.status(500).json({ error: 'Failed to verify update' });
-    if (!user) return res.status(404).json({ error: 'User not found' });
-
-    if (!user['updateVerification.codeHash'] || !user['updateVerification.expiresAt']) {
-      return res.status(400).json({ error: 'No pending update found' });
+    const { data: pending, error: pendingErr } = await supabase
+      .from('pending_user_updates')
+      .select('user_id, update_type, target_value, otp_hash, expires_at')
+      .eq('user_id', String(req.userId))
+      .maybeSingle();
+    if (pendingErr) {
+      console.error('Failed to load pending profile update', pendingErr);
+      return res.status(500).json({ error: 'Failed to verify update' });
     }
 
-    if (new Date(user['updateVerification.expiresAt']).getTime() < Date.now()) {
-      return res.status(400).json({ error: 'OTP expired' });
+    const expiredMessage = 'Verification session expired. Please request a new OTP.';
+    if (!pending?.otp_hash || !pending?.expires_at || !pending?.target_value || !pending?.update_type) {
+      return res.status(400).json({ error: expiredMessage, code: 'UPDATE_SESSION_EXPIRED' });
     }
 
-    if (hashCode(otp) !== user['updateVerification.codeHash']) {
+    if (new Date(pending.expires_at).getTime() <= Date.now()) {
+      await supabase
+        .from('pending_user_updates')
+        .delete()
+        .eq('user_id', String(req.userId))
+        .eq('otp_hash', pending.otp_hash);
+      return res.status(400).json({ error: expiredMessage, code: 'UPDATE_SESSION_EXPIRED' });
+    }
+
+    if (hashCode(otp) !== pending.otp_hash) {
       return res.status(400).json({ error: 'Invalid OTP' });
     }
 
-    const type = String(user['updateVerification.type'] || '');
-    if (type === 'email') {
-      if (!user.tempEmail) return res.status(400).json({ error: 'No pending email found' });
-    } else if (type === 'phone') {
-      if (!user.tempPhone) return res.status(400).json({ error: 'No pending phone found' });
+    const type = String(pending.update_type);
+    if (!['email', 'phone'].includes(type)) {
+      return res.status(400).json({ error: expiredMessage, code: 'UPDATE_SESSION_EXPIRED' });
     }
 
     const update =
       type === 'email'
-        ? { email: user.tempEmail, tempEmail: null, 'updateVerification.codeHash': null, 'updateVerification.expiresAt': null, 'updateVerification.type': null, emailVerified: false }
-        : { phone: user.tempPhone, tempPhone: null, 'updateVerification.codeHash': null, 'updateVerification.expiresAt': null, 'updateVerification.type': null, phoneVerified: false };
+        ? { email: pending.target_value, emailVerified: false, updatedAt: new Date().toISOString() }
+        : { phone: pending.target_value, phoneVerified: false, updatedAt: new Date().toISOString() };
     const { data: updated, error: updateErr } = await supabase
       .from('users')
       .update(update)
       .eq('_id', req.userId)
       .select('*')
       .single();
-    if (updateErr || !updated) return res.status(500).json({ error: 'Failed to verify update' });
+    if (updateErr || !updated) {
+      if (updateErr?.code === '23505') return res.status(409).json({ error: 'Email already in use' });
+      console.error('Failed to apply verified profile update', updateErr);
+      return res.status(500).json({ error: 'Failed to verify update' });
+    }
+
+    const { error: consumeErr } = await supabase
+      .from('pending_user_updates')
+      .delete()
+      .eq('user_id', String(req.userId))
+      .eq('otp_hash', pending.otp_hash);
+    if (consumeErr) console.error('Failed to clear verified profile update', consumeErr);
 
     return res.json({ ok: true, user: userRowToPublic(updated) });
   } catch (err) {
@@ -276,7 +300,7 @@ router.post('/me/avatar', requireAuth, (req, res) => {
       const supabase = getSupabaseAdmin();
       const { data: user, error: updateErr } = await supabase
         .from('users')
-        .update({ avatarUrl })
+        .update({ avatarUrl, updatedAt: new Date().toISOString() })
         .eq('_id', req.userId)
         .select('*')
         .single();

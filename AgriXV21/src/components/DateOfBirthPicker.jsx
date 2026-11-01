@@ -10,7 +10,7 @@ const MONTHS = [
 
 const WEEKDAYS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
 
-export default function DateOfBirthPicker({ value, onChange, error }) {
+export default function DateOfBirthPicker({ value, onChange, error, allowInvalidSelection = false }) {
   const [modalVisible, setModalVisible] = useState(false);
   const [viewDate, setViewDate] = useState(new Date()); // The date currently being viewed (month/year)
   const [selectedDate, setSelectedDate] = useState(null);
@@ -39,6 +39,15 @@ export default function DateOfBirthPicker({ value, onChange, error }) {
     if (!day) return;
     
     const newDate = new Date(viewDate.getFullYear(), viewDate.getMonth(), day);
+
+    const formatted = `${newDate.getFullYear()}-${String(newDate.getMonth() + 1).padStart(2, '0')}-${String(newDate.getDate()).padStart(2, '0')}`;
+    const today = new Date();
+    today.setHours(23, 59, 59, 999);
+    if (newDate.getTime() > today.getTime()) {
+      onChange(formatted);
+      setModalVisible(false);
+      return;
+    }
     
     // 18+ Validation
     const cutoff = new Date();
@@ -52,12 +61,16 @@ export default function DateOfBirthPicker({ value, onChange, error }) {
     checkCutoff.setHours(0,0,0,0);
 
     if (checkDate > checkCutoff) {
+      if (allowInvalidSelection) {
+        onChange(formatted);
+        setModalVisible(false);
+        return;
+      }
       setValidationPopupVisible(true);
       // We do NOT update the value if invalid
       return;
     }
 
-    const formatted = `${newDate.getFullYear()}-${String(newDate.getMonth() + 1).padStart(2, '0')}-${String(newDate.getDate()).padStart(2, '0')}`;
     onChange(formatted);
     setModalVisible(false);
   };
@@ -291,6 +304,7 @@ export default function DateOfBirthPicker({ value, onChange, error }) {
 const styles = StyleSheet.create({
   container: {
     width: '100%',
+    flexDirection: 'column',
   },
   inputTrigger: {
     flexDirection: 'row',

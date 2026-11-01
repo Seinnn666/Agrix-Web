@@ -92,6 +92,32 @@ export default function SignUpScreen({ navigation }) {
 
   const phoneRules = useMemo(() => getPhoneRules(countryCode), [countryCode]);
 
+  const clearFieldError = (field) => {
+    setFieldErrors((current) => {
+      if (!current[field]) return current;
+      const next = { ...current };
+      delete next[field];
+      return next;
+    });
+    setError('');
+  };
+
+  const currentFormValues = () => ({
+    firstName, lastName, address, dateOfBirth, gender, countryCode, phoneNumber,
+    phone: normalizePhoneInput(countryCode, phoneNumber).e164, email, password, confirmPassword,
+  });
+
+  const validateFieldOnBlur = (field) => {
+    const result = validateSignUpForm(currentFormValues());
+    const message = result.fieldErrors[field];
+    setFieldErrors((current) => {
+      const next = { ...current };
+      if (message) next[field] = message;
+      else delete next[field];
+      return next;
+    });
+  };
+
   const handleCreateAccount = async () => {
     try {
       setError('');
@@ -114,9 +140,8 @@ export default function SignUpScreen({ navigation }) {
         confirmPassword,
       });
       if (!validation.ok) {
-        const firstError = Object.values(validation.fieldErrors || {})[0];
         setFieldErrors(validation.fieldErrors);
-        setError(firstError || 'Please fix the highlighted fields');
+        setError('');
         return;
       }
 
@@ -367,8 +392,9 @@ export default function SignUpScreen({ navigation }) {
                       fieldErrors.firstName && styles.inputError,
                     ]}
                     value={firstName}
-                    onChangeText={(v) => setFirstName(String(v || '').replace(/\d/g, ''))}
-                    maxLength={35}
+                    onChangeText={(v) => { clearFieldError('firstName'); setFirstName(String(v || '').replace(/\d/g, '')); }}
+                    onBlur={() => validateFieldOnBlur('firstName')}
+                    maxLength={37}
                     autoComplete="given-name"
                     textContentType="givenName"
                   />
@@ -383,8 +409,9 @@ export default function SignUpScreen({ navigation }) {
                       fieldErrors.lastName && styles.inputError,
                     ]}
                     value={lastName}
-                    onChangeText={(v) => setLastName(String(v || '').replace(/\d/g, ''))}
-                    maxLength={35}
+                    onChangeText={(v) => { clearFieldError('lastName'); setLastName(String(v || '').replace(/\d/g, '')); }}
+                    onBlur={() => validateFieldOnBlur('lastName')}
+                    maxLength={37}
                     autoComplete="family-name"
                     textContentType="familyName"
                   />
@@ -401,7 +428,8 @@ export default function SignUpScreen({ navigation }) {
                     fieldErrors.address && styles.inputError,
                   ]}
                   value={address}
-                  onChangeText={setAddress}
+                  onChangeText={(v) => { clearFieldError('address'); setAddress(v); }}
+                  onBlur={() => validateFieldOnBlur('address')}
                 />
                 {!!fieldErrors.address && <Text style={styles.fieldError}>{fieldErrors.address}</Text>}
               </View>
@@ -411,7 +439,7 @@ export default function SignUpScreen({ navigation }) {
                   <Text style={[styles.label, isDark && { color: '#E5E7EB' }]}>Date of Birth *</Text>
                   <DateOfBirthPicker
                     value={dateOfBirth}
-                    onChange={setDateOfBirth}
+                    onChange={(v) => { clearFieldError('dateOfBirth'); setDateOfBirth(v); }}
                     error={fieldErrors.dateOfBirth}
                   />
                 </View>
@@ -467,6 +495,7 @@ export default function SignUpScreen({ navigation }) {
                 ]}
                 value={phoneNumber}
                 onChangeText={(v) => {
+                  clearFieldError('phone');
                   const digits = String(v || '').replace(/\D/g, '');
                   if (countryCode === '+63') {
                     let next = digits;
@@ -479,6 +508,7 @@ export default function SignUpScreen({ navigation }) {
                   }
                   setPhoneNumber(digits.slice(0, phoneRules.maxLength));
                 }}
+                onBlur={() => validateFieldOnBlur('phone')}
                 keyboardType="phone-pad"
                 autoComplete="tel"
                 textContentType="telephoneNumber"
@@ -528,7 +558,8 @@ export default function SignUpScreen({ navigation }) {
                 fieldErrors.email && styles.inputError,
               ]}
               value={email}
-              onChangeText={setEmail}
+              onChangeText={(v) => { clearFieldError('email'); setEmail(v); }}
+              onBlur={() => validateFieldOnBlur('email')}
               keyboardType="email-address"
               autoCapitalize="none"
               autoComplete="email"
@@ -548,9 +579,8 @@ export default function SignUpScreen({ navigation }) {
                   fieldErrors.password && styles.inputError,
                 ]}
                 value={password}
-                onChangeText={(text) =>
-                  setPassword((prev) => (shouldBlockMultiCharInsert(prev, text) ? prev : text))
-                }
+                onChangeText={(text) => { clearFieldError('password'); setPassword((prev) => (shouldBlockMultiCharInsert(prev, text) ? prev : text)); }}
+                onBlur={() => validateFieldOnBlur('password')}
                 secureTextEntry={!showPassword}
                 autoComplete="new-password"
                 textContentType="newPassword"
@@ -595,9 +625,8 @@ export default function SignUpScreen({ navigation }) {
                   fieldErrors.confirmPassword && styles.inputError,
                 ]}
                 value={confirmPassword}
-                onChangeText={(text) =>
-                  setConfirmPassword((prev) => (shouldBlockMultiCharInsert(prev, text) ? prev : text))
-                }
+                onChangeText={(text) => { clearFieldError('confirmPassword'); setConfirmPassword((prev) => (shouldBlockMultiCharInsert(prev, text) ? prev : text)); }}
+                onBlur={() => validateFieldOnBlur('confirmPassword')}
                 secureTextEntry={!showConfirmPassword}
                 autoComplete="new-password"
                 textContentType="newPassword"

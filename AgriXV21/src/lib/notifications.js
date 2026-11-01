@@ -1,9 +1,26 @@
+import { fetchUserNotifications } from './authApi';
+
 const STORAGE_KEY = 'agrix_notifications';
 const MUTES_KEY = 'agrix_notification_mutes';
 const WEB_NOTIFICATIONS_KEY = 'agrix_web_notifications_enabled';
 const MAX_ITEMS = 200;
 
-let memoryNotifications = [];
+function currentUserId() {
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return '';
+    const user = JSON.parse(window.localStorage.getItem('agrix_user') || 'null');
+    return String(user?.id || user?._id || '').trim();
+  } catch (_err) {
+    return '';
+  }
+}
+
+function storageKey() {
+  const id = currentUserId();
+  return id ? `${STORAGE_KEY}:${id}` : `${STORAGE_KEY}:anonymous`;
+}
+
+let memoryNotifications = {};
 let memoryMutes = {};
 let memoryWebNotificationsEnabled = false;
 let lastWebNotifyAtByKey = {};
@@ -12,14 +29,58 @@ function canUseStorage() {
   return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
 }
 
+function timestampValue(value) {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  const raw = String(value ?? '').trim();
+  if (/^\d{10,13}$/.test(raw)) return Number(raw) * (raw.length === 10 ? 1000 : 1);
+  const parsed = Date.parse(raw);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function booleanValue(value) {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value > 0;
+  const normalized = String(value || '').trim().toLowerCase();
+  return normalized === 'true' || normalized === '1' || normalized === 'yes';
+}
+
+function notificationEntries(value, depth = 0) {
+  if (Array.isArray(value)) return value;
+  if (!value || typeof value !== 'object' || depth > 2) return [];
+  for (const key of ['items', 'notifications', 'alerts', 'events', 'data']) {
+    const entries = notificationEntries(value[key], depth + 1);
+    if (entries.length) return entries;
+  }
+  return value.id || value._id || value.title || value.subject || value.message ? [value] : [];
+}
+
+function normalizeNotification(item, index) {
+  if (!item || typeof item !== 'object') return null;
+  const createdAt = timestampValue(item.createdAt ?? item.created_at ?? item.timestamp ?? item.at ?? item.date);
+  const title = String(item.title || item.subject || item.name || 'Farm update').trim();
+  const message = String(item.message || item.body || item.description || 'There is a new update.').trim();
+  const id = String(item.id || item._id || item.uuid || `${createdAt || 'notification'}-${index}`);
+  return {
+    ...item,
+    id,
+    title,
+    message,
+    level: String(item.level || item.severity || 'info').trim().toLowerCase(),
+    key: String(item.key || item.type || id),
+    read: booleanValue(item.read ?? item.isRead),
+    acknowledgedAt: timestampValue(item.acknowledgedAt ?? item.acknowledged_at),
+    createdAt,
+  };
+}
+
 function readRaw() {
-  if (!canUseStorage()) return memoryNotifications;
+  if (!canUseStorage()) return memoryNotifications[storageKey()] || [];
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
+    const raw = window.localStorage.getItem(storageKey());
     if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed;
+    let parsed = JSON.parse(raw);
+    if (typeof parsed === 'string') parsed = JSON.parse(parsed);
+    return notificationEntries(parsed).map(normalizeNotification).filter(Boolean);
   } catch (_err) {
     return [];
   }
@@ -73,11 +134,11 @@ function writeMutes(next) {
 function writeRaw(items) {
   const safeItems = Array.isArray(items) ? items.slice(0, MAX_ITEMS) : [];
   if (!canUseStorage()) {
-    memoryNotifications = safeItems;
+    memoryNotifications[storageKey()] = safeItems;
     return;
   }
   try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(safeItems));
+    window.localStorage.setItem(storageKey(), JSON.stringify(safeItems));
   } catch (_err) {
   }
 }
@@ -87,6 +148,27 @@ function emitChange(detail) {
   try {
     window.dispatchEvent(new CustomEvent('agrix:notifications', { detail }));
   } catch (_err) {
+  }
+}
+
+let notificationFetchForUser = '';
+async function fetchNotificationsForCurrentUser() {
+  const userId = currentUserId();
+  if (!userId || notificationFetchForUser === userId) return;
+  notificationFetchForUser = userId;
+  try {
+    const response = await fetchUserNotifications();
+    if (currentUserId() !== userId) return;
+    const remote = notificationEntries(response).map(normalizeNotification).filter(Boolean)
+      .map((item) => ({ ...item, userId: String(item.userId || item.recipientId || userId) }));
+    const existing = readRaw();
+    const byId = new Map([...remote, ...existing].map((item) => [item.id, item]));
+    writeRaw([...byId.values()].sort((a, b) => b.createdAt - a.createdAt));
+    emitChange({ type: 'fetched' });
+  } catch (_err) {
+    // Keep locally generated notifications available when the API is offline.
+  } finally {
+    if (currentUserId() !== userId && notificationFetchForUser === userId) notificationFetchForUser = '';
   }
 }
 
@@ -139,7 +221,7 @@ function maybeSendWebNotification(item) {
 export function listNotifications() {
   return readRaw()
     .slice()
-    .sort((a, b) => Number(b?.createdAt || 0) - Number(a?.createdAt || 0));
+    .sort((a, b) => timestampValue(b?.createdAt) - timestampValue(a?.createdAt));
 }
 
 export function listAdminNotifications() {
@@ -184,6 +266,7 @@ export function addNotification(payload) {
     level,
     key,
     audience: String(payload?.audience || '').trim().toLowerCase() === 'admin' ? 'admin' : 'user',
+    userId: String(payload?.userId || currentUserId()).trim(),
     read: false,
     acknowledgedAt: 0,
     createdAt: Date.now(),
@@ -263,7 +346,16 @@ export function subscribeNotifications(listener) {
     if (typeof listener === 'function') listener(event?.detail || { type: 'updated' });
   };
   window.addEventListener('agrix:notifications', handler);
+  const authHandler = () => {
+    notificationFetchForUser = '';
+    fetchNotificationsForCurrentUser();
+    if (typeof listener === 'function') listener({ type: 'user_changed' });
+  };
+  window.addEventListener('agrix:auth', authHandler);
   return () => {
     window.removeEventListener('agrix:notifications', handler);
+    window.removeEventListener('agrix:auth', authHandler);
   };
 }
+
+if (typeof window !== 'undefined') fetchNotificationsForCurrentUser();

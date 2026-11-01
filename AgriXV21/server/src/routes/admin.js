@@ -38,9 +38,63 @@ function normalizeRole(v) {
   const raw = String(v || '').trim().toLowerCase();
   if (!raw) return '';
   if (raw === 'admin') return 'admin';
-  if (raw === 'farmer') return 'farmer';
-  if (raw === 'farm_owner' || raw === 'farm owner' || raw === 'farm-owner') return 'farm_owner';
+  if (raw === 'user') return 'user';
   return '';
+}
+
+async function enrichUsersFromAuth(supabase, rows) {
+  const users = Array.isArray(rows) ? rows : [];
+  const needsAuthData = users.some((row) => {
+    const dto = userRowToAdminDto(row);
+    return !dto.fullName || !dto.createdAt;
+  });
+  if (!needsAuthData) return users.map(userRowToAdminDto);
+
+  const emailsNeeded = new Set(users
+    .filter((row) => {
+      const dto = userRowToAdminDto(row);
+      return !dto.fullName || !dto.createdAt;
+    })
+    .map((row) => String(row.email || '').trim().toLowerCase())
+    .filter(Boolean));
+  if (!emailsNeeded.size) return users.map(userRowToAdminDto);
+
+  const authUsersByEmail = new Map();
+  try {
+    for (let page = 1; page <= 10 && emailsNeeded.size; page += 1) {
+      const { data, error } = await supabase.auth.admin.listUsers({ page, perPage: 1000 });
+      if (error) break;
+      const authUsers = Array.isArray(data?.users) ? data.users : [];
+      for (const authUser of authUsers) {
+        const email = String(authUser.email || '').trim().toLowerCase();
+        if (emailsNeeded.has(email)) {
+          authUsersByEmail.set(email, authUser);
+          emailsNeeded.delete(email);
+        }
+      }
+      if (authUsers.length < 1000) break;
+    }
+  } catch (_err) {
+  }
+
+  return users.map((row) => {
+    const dto = userRowToAdminDto(row);
+    const authUser = authUsersByEmail.get(String(row.email || '').trim().toLowerCase());
+    if (!authUser) return dto;
+    const metadata = authUser.user_metadata && typeof authUser.user_metadata === 'object' ? authUser.user_metadata : {};
+    const metadataName = String(metadata.fullName || metadata.full_name || metadata.name || '').trim();
+    const firstName = dto.firstName || String(metadata.firstName || metadata.first_name || '').trim();
+    const lastName = dto.lastName || String(metadata.lastName || metadata.last_name || '').trim();
+    const fullName = dto.fullName || metadataName || `${firstName} ${lastName}`.trim();
+    return {
+      ...dto,
+      firstName,
+      lastName,
+      fullName,
+      emailVerified: dto.emailVerified || Boolean(authUser.email_confirmed_at || authUser.confirmed_at),
+      createdAt: dto.createdAt || authUser.created_at || authUser.confirmed_at || '',
+    };
+  });
 }
 
 router.post('/login', async (req, res) => {
@@ -186,6 +240,7 @@ router.patch('/profile', requireAdmin, async (req, res) => {
        if (req.body.password.length < 6) return res.status(400).json({ error: 'Password too short' });
        updates.passwordHash = await bcrypt.hash(req.body.password, 12);
     }
+    updates.updatedAt = new Date().toISOString();
 
     const supabase = getSupabaseAdmin();
     const { data: updated, error } = await supabase
@@ -212,7 +267,7 @@ router.get('/users', requireAdmin, async (req, res) => {
     let query = supabase
       .from('users')
       .select('*', { count: 'exact' })
-      .order('createdAt', { ascending: false });
+      .order('createdAt', { ascending: false, nullsFirst: false });
     if (q) {
       const safe = q.replace(/%/g, '\\%').replace(/_/g, '\\_');
       query = query.or(`email.ilike.%${safe}%,firstName.ilike.%${safe}%,lastName.ilike.%${safe}%`);
@@ -223,7 +278,7 @@ router.get('/users', requireAdmin, async (req, res) => {
     if (error) return res.status(500).json({ error: 'Failed to load users' });
 
     return res.json({
-      items: (items || []).map(userRowToAdminDto),
+      items: await enrichUsersFromAuth(supabase, items),
       page,
       pageSize,
       total: Number(count || 0),
@@ -247,7 +302,7 @@ router.get('/metrics', requireAdmin, async (_req, res) => {
     const { data: recentUsers, error } = await supabase
       .from('users')
       .select('*')
-      .order('createdAt', { ascending: false })
+      .order('createdAt', { ascending: false, nullsFirst: false })
       .range(0, 7);
     if (error) return res.status(500).json({ error: 'Failed to load metrics' });
 
@@ -258,7 +313,7 @@ router.get('/metrics', requireAdmin, async (_req, res) => {
         emailVerified: Number(emailVerified || 0),
         phoneVerified: Number(phoneVerified || 0),
       },
-      recentUsers: (recentUsers || []).map(userRowToAdminDto),
+      recentUsers: await enrichUsersFromAuth(supabase, recentUsers),
     });
   } catch (_err) {
     return res.status(500).json({ error: 'Failed to load metrics' });
@@ -269,7 +324,7 @@ router.get('/users/export', requireAdmin, async (req, res) => {
   try {
     const q = String(req.query.q || '').trim();
     const supabase = getSupabaseAdmin();
-    let query = supabase.from('users').select('*').order('createdAt', { ascending: false });
+    let query = supabase.from('users').select('*').order('createdAt', { ascending: false, nullsFirst: false });
     if (q) {
       const safe = q.replace(/%/g, '\\%').replace(/_/g, '\\_');
       query = query.or(`email.ilike.%${safe}%,firstName.ilike.%${safe}%,lastName.ilike.%${safe}%`);
@@ -326,7 +381,7 @@ router.patch('/users/:id', requireAdmin, async (req, res) => {
       dateOfBirth: user.dateOfBirth || '',
       gender: user.gender || '',
       isAdmin: parseBool(user.isAdmin),
-      role: String(user.role || '').trim() || (parseBool(user.isAdmin) ? 'admin' : 'farmer'),
+      role: parseBool(user.isAdmin) || String(user.role || '').trim().toLowerCase() === 'admin' ? 'admin' : 'user',
     };
 
     if (Object.prototype.hasOwnProperty.call(req.body || {}, 'firstName')) {
@@ -350,9 +405,10 @@ router.patch('/users/:id', requireAdmin, async (req, res) => {
     if (Object.prototype.hasOwnProperty.call(req.body || {}, 'gender')) {
       next.gender = String(req.body.gender || '').trim();
     }
+    next.updatedAt = new Date().toISOString();
     if (Object.prototype.hasOwnProperty.call(req.body || {}, 'isAdmin')) {
       next.isAdmin = parseBool(req.body.isAdmin);
-      next.role = next.isAdmin ? 'admin' : next.role === 'farm_owner' ? 'farm_owner' : 'farmer';
+      next.role = next.isAdmin ? 'admin' : 'user';
     }
     if (Object.prototype.hasOwnProperty.call(req.body || {}, 'role')) {
       const normalized = normalizeRole(req.body.role);
@@ -390,6 +446,7 @@ router.patch('/users/:id', requireAdmin, async (req, res) => {
         gender: next.gender,
         isAdmin: next.isAdmin,
         role: next.role,
+        updatedAt: next.updatedAt,
       })
       .eq('_id', id)
       .select('*')

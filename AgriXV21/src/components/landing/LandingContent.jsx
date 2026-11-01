@@ -182,16 +182,7 @@ export default function LandingContent({ navigation }) {
       desc:
         'Acts as the controller for the coffee monitoring node, handling Wi‑Fi and Bluetooth communication for real-time data transmission from connected modules.',
       detail:
-        'The ESP32 microcontroller is the core of the monitoring node. It coordinates data collection from connected sensors and modules, then streams readings and snapshots to the dashboard. This setup supports CvSU students and researchers by making coffee storage monitoring accessible, repeatable, and easy to review from both web and mobile.',
-    },
-    {
-      id: 'ov2640',
-      Icon: Sprout,
-      title: 'OV2640 Camera Module',
-      desc:
-        'Provides visual verification of coffee storage conditions through periodic snapshots.',
-      detail:
-        'The OV2640 camera module adds a visual layer to coffee monitoring. Alongside sensor readings, snapshots help confirm storage conditions (e.g., condensation, container placement, and overall environment). This supports CvSU monitoring activities by pairing numeric data with visual evidence for reporting and review.',
+        'The ESP32 microcontroller is the core of the monitoring node. It coordinates data collection from connected sensors and modules, then streams readings to the dashboard. This setup supports CvSU students and researchers by making coffee storage monitoring accessible, repeatable, and easy to review from both web and mobile.',
     },
     {
       id: 'dht11',
@@ -217,7 +208,6 @@ export default function LandingContent({ navigation }) {
     { title: 'Temperature', body: 'Continuous tracking inside coffee storage areas.' },
     { title: 'Humidity', body: 'Monitoring to help keep storage conditions stable.' },
     { title: 'Real-time alerts', body: 'Notifies users when readings exceed configured thresholds.' },
-    { title: 'Storage snapshots', body: 'Captures images via the OV2640 camera module for visual checks.' },
     { title: 'History and trends', body: 'Review past readings and patterns over time.' },
     { title: 'Field notes', body: 'Track observations alongside sensor data for CvSU activities.' },
   ];
@@ -241,13 +231,12 @@ export default function LandingContent({ navigation }) {
           <View style={styles.heroContent}>
             <Text style={styles.heroTitle}>AgriX Coffee Monitoring</Text>
             <Text style={styles.heroText}>
-              Real-time storage monitoring with snapshots and threshold alerts—built to support CvSU coffee projects.
+              Real-time storage monitoring and threshold alerts—built to support CvSU coffee projects.
             </Text>
 
             <View style={styles.heroBullets}>
               {[
                 'Track storage temperature and humidity',
-                'Verify conditions with camera snapshots',
                 'Get alerts when thresholds are exceeded',
                 'Review trends for reporting and review',
               ].map((t) => (
@@ -268,7 +257,7 @@ export default function LandingContent({ navigation }) {
             </View>
 
             <Text style={styles.heroTrust}>
-              Real-time humidity/temp • Snapshot verification • Threshold alerts
+              Real-time humidity/temp • Threshold alerts
             </Text>
           </View>
         </ImageBackground>
@@ -284,7 +273,7 @@ export default function LandingContent({ navigation }) {
             },
             {
               title: 'Dashboard',
-              body: 'View readings, trends, and camera snapshots across web and mobile.',
+              body: 'View sensor readings and trends across web and mobile.',
             },
             {
               title: 'Alerts',
@@ -332,7 +321,7 @@ export default function LandingContent({ navigation }) {
       <View style={styles.section}>
         <Text style={[styles.sectionTitle, isDark && { color: '#E5E7EB' }]}>Monitored Data</Text>
         <Text style={[styles.sectionLead, isDark && { color: '#9CA3AF' }]}>
-          Data shown on the homepage reflects the core AgriX modules for CvSU: real-time monitoring, snapshots, and alerts for coffee storage and field observations.
+          Data shown on the homepage reflects the core AgriX modules for CvSU: real-time sensor monitoring and alerts for coffee storage and field observations.
         </Text>
           <View style={styles.mapGrid}>
           {dataMaps.map((m) => (
@@ -367,7 +356,7 @@ export default function LandingContent({ navigation }) {
           <View style={styles.aboutContent}>
             <Text style={[styles.aboutTitle, isDark && { color: '#E5E7EB' }]}>About the Project</Text>
             <Text style={[styles.aboutText, isDark && { color: '#9CA3AF' }]}>
-              AgriX is a coffee monitoring platform designed to support CvSU by combining sensor data, snapshots, and dashboards for easy review.
+              AgriX is a coffee monitoring platform designed to support CvSU with sensor data and dashboards for easy review.
             </Text>
             <Text style={[styles.aboutText, isDark && { color: '#9CA3AF' }]}>
               The goal is to make monitoring simple and consistent across web and mobile, so students, researchers, and project teams can track conditions and trends over time.

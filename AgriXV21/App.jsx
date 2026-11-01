@@ -19,7 +19,6 @@ import MyProfileScreen from './src/screens/MyProfileScreen';
 import VerifyRegistrationScreen from './src/screens/VerifyRegistrationScreen';
 import ForgotPasswordScreen from './src/screens/ForgotPasswordScreen';
 import ResetPasswordScreen from './src/screens/ResetPasswordScreen';
-import AdminLoginScreen from './src/screens/AdminLoginScreen';
 import AdminUsersScreen from './src/screens/AdminUsersScreen';
 import AdminDashboardScreen from './src/screens/AdminDashboardScreen';
 import AdminProfileScreen from './src/screens/AdminProfileScreen';
@@ -96,11 +95,14 @@ function safeSetItem(key, value) {
 function computeInitialRoute() {
   const { token: userToken, user } = loadAuth();
   const { token: adminToken } = loadAdminAuth();
+  const last = safeGetItem('agrix_last_route');
   // An admin session always opens at its control panel; stale sub-page history
   // must not strand an administrator on a user-facing route after reload.
-  if (Boolean(user?.isAdmin) || Boolean(adminToken)) return 'AdminDashboard';
+  const isAdmin = Boolean(user?.isAdmin) || String(user?.role || '').trim().toLowerCase() === 'admin' || Boolean(adminToken);
+  if (isAdmin) return 'AdminDashboard';
   const isAuthed = Boolean(userToken) || Boolean(adminToken) || Boolean(user?.isAdmin);
-  if (!isAuthed) return 'Landing';
+  if (!isAuthed) return last === 'AdminLogin' ? 'SignIn' : 'Landing';
+  if (last === 'AdminLogin') return 'Dashboard';
 
   const allowed = new Set([
     'Dashboard',
@@ -114,12 +116,10 @@ function computeInitialRoute() {
     'AlertHistory',
     'AdminDashboard',
     'AdminUsers',
-    'AdminLogin',
     'Notifications',
     'Notification',
   ]);
-  const last = safeGetItem('agrix_last_route');
-  if (['AdminLogin', 'AdminDashboard', 'AdminUsers', 'AdminProfile'].includes(last)) return 'Dashboard';
+  if (['AdminDashboard', 'AdminUsers', 'AdminProfile'].includes(last)) return 'Dashboard';
   if (last && allowed.has(last) && last !== 'Landing' && last !== 'SignIn' && last !== 'SignUp') {
     if (last === 'FarmerDashboard' || last === 'FarmOwnerDashboard') return 'Dashboard';
     return last;
@@ -129,6 +129,7 @@ function computeInitialRoute() {
 
 export default function App() {
   const markActivityRef = React.useRef(() => {});
+  const inactivityLogoutStartedRef = React.useRef(false);
   const [sessionPopup, setSessionPopup] = React.useState({ visible: false, title: '', message: '' });
   const stackScreenOptions =
     IS_WEB
@@ -170,7 +171,7 @@ export default function App() {
       if (payload?.type !== 'added' || !payload?.notification) return;
       const { token: adminToken } = loadAdminAuth();
       const { user } = loadAuth();
-      if (adminToken || user?.isAdmin) return;
+      if (adminToken || user?.isAdmin || String(user?.role || '').trim().toLowerCase() === 'admin') return;
       if (isNotificationMuted(payload.notification.key)) return;
       queueRef.current.push(payload.notification);
       openNext();
@@ -196,8 +197,10 @@ export default function App() {
 
   React.useEffect(() => {
     const rememberEnabled = safeGetItem('agrix_remember_me') === '1';
-    const inactivityMs = rememberEnabled ? 30 * 60 * 1000 : 2 * 60 * 1000;
-    const inactivityLabel = rememberEnabled ? '30 minutes' : '2 minutes';
+    // A two-minute timeout revoked Supabase sessions during ordinary use,
+    // which made opening Profile appear to log the user out.
+    const inactivityMs = rememberEnabled ? 8 * 60 * 60 * 1000 : 30 * 60 * 1000;
+    const inactivityLabel = rememberEnabled ? '8 hours' : '30 minutes';
     const lastActivityRef = { current: Date.now() };
 
     const markActivity = () => {
@@ -207,10 +210,15 @@ export default function App() {
     markActivityRef.current = markActivity;
 
     const logoutForInactivity = () => {
+      if (inactivityLogoutStartedRef.current) return;
+      inactivityLogoutStartedRef.current = true;
+      const { token: activeAdminToken } = loadAdminAuth();
+      const { user: activeUser } = loadAuth();
+      const adminSession = Boolean(activeAdminToken) || Boolean(activeUser?.isAdmin) || String(activeUser?.role || '').trim().toLowerCase() === 'admin';
       clearAuth();
       clearAdminAuth();
       if (navigationRef.isReady()) {
-        navigationRef.resetRoot({ index: 0, routes: [{ name: 'Landing' }] });
+        navigationRef.resetRoot({ index: 0, routes: [{ name: adminSession ? 'SignIn' : 'Landing' }] });
       }
       setTimeout(() => {
         if (IS_WEB) {
@@ -230,7 +238,9 @@ export default function App() {
 
     const check = () => {
       const { token } = loadAuth();
-      if (!token) {
+      const { token: adminToken } = loadAdminAuth();
+      if (!token && !adminToken) {
+        inactivityLogoutStartedRef.current = false;
         markActivity();
         return;
       }
@@ -300,7 +310,7 @@ export default function App() {
                 }
                 const { token: userToken, user } = loadAuth();
                 const { token: adminToken } = loadAdminAuth();
-                const isAuthed = Boolean(userToken) || Boolean(adminToken) || Boolean(user?.isAdmin);
+                const isAuthed = Boolean(userToken) || Boolean(adminToken) || Boolean(user?.isAdmin) || String(user?.role || '').trim().toLowerCase() === 'admin';
                 if (!isAuthed) return;
                 safeSetItem('agrix_last_route', name);
               } catch (_err) {
@@ -345,7 +355,6 @@ export default function App() {
               />
               <Stack.Screen name="Snapshots" component={SnapshotsScreen} options={slideFromRightOptions} />
               <Stack.Screen name="AlertHistory" component={AlertHistoryScreen} options={slideFromRightOptions} />
-              <Stack.Screen name="AdminLogin" component={AdminLoginScreen} options={slideFromRightOptions} />
               <Stack.Screen name="AdminUsers" component={AdminUsersScreen} options={slideFromRightOptions} />
               <Stack.Screen name="AdminDashboard" component={AdminDashboardScreen} options={slideFromRightOptions} />
               <Stack.Screen name="AdminProfile" component={AdminProfileScreen} options={slideFromRightOptions} />
@@ -372,7 +381,7 @@ export default function App() {
             if (navigationRef.isReady()) {
               const { token: adminToken } = loadAdminAuth();
               const { user } = loadAuth();
-              navigationRef.navigate('Notifications', { audience: adminToken || user?.isAdmin ? 'admin' : 'user' });
+              navigationRef.navigate('Notifications', { audience: adminToken || user?.isAdmin || String(user?.role || '').trim().toLowerCase() === 'admin' ? 'admin' : 'user' });
             }
           }}
           onCancel={closeNotificationPopup}

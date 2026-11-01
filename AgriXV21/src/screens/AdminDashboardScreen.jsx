@@ -20,15 +20,22 @@ import { theme } from '../ui/theme';
 import { getAdminActivityUnreadCount } from '../lib/adminActivity';
 import { getUnreadAdminNotificationsCount } from '../lib/notifications';
 import { useFocusEffect } from '@react-navigation/native';
+import { clearAuth } from '../lib/authApi';
 
 export default function AdminDashboardScreen({ navigation }) {
   const [error, setError] = useState('');
   const [data, setData] = useState({ metrics: null, recentUsers: [] });
   const [logoutVisible, setLogoutVisible] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const { width } = useWindowDimensions();
   const isMobile = width < 768;
-  const [sidebarOpen, setSidebarOpen] = useState(!isMobile);
   const [adminUnread, setAdminUnread] = useState(() => getAdminActivityUnreadCount() + getUnreadAdminNotificationsCount());
+
+  const formatJoinedDate = (value) => {
+    if (!value) return '—';
+    const date = new Date(value);
+    return Number.isFinite(date.getTime()) ? date.toLocaleDateString() : '—';
+  };
 
   useFocusEffect(React.useCallback(() => {
     setAdminUnread(getAdminActivityUnreadCount() + getUnreadAdminNotificationsCount());
@@ -43,7 +50,7 @@ export default function AdminDashboardScreen({ navigation }) {
 
   const load = async () => {
     if (!hasAdminPanelAccess()) {
-      navigation.reset({ index: 0, routes: [{ name: 'AdminLogin' }] });
+      navigation.reset({ index: 0, routes: [{ name: 'SignIn' }] });
       return;
     }
     try {
@@ -55,12 +62,15 @@ export default function AdminDashboardScreen({ navigation }) {
       });
     } catch (err) {
       if (err?.code === 'UNAUTHORIZED' || err?.code === 'SESSION_EXPIRED') {
+        await clearAuth();
         clearAdminAuth();
-        navigation.reset({ index: 0, routes: [{ name: 'AdminLogin' }] });
+        navigation.reset({ index: 0, routes: [{ name: 'SignIn' }] });
         return;
       }
       if (err?.code === 'FORBIDDEN') {
-        navigation.reset({ index: 0, routes: [{ name: 'AdminLogin' }] });
+        await clearAuth();
+        clearAdminAuth();
+        navigation.reset({ index: 0, routes: [{ name: 'SignIn' }] });
         return;
       }
       setError(err?.message || 'Failed to load admin dashboard');
@@ -71,23 +81,20 @@ export default function AdminDashboardScreen({ navigation }) {
     load();
   }, []);
 
-  // Responsive sidebar handling
-  useEffect(() => {
-    if (!isMobile) {
-      setSidebarOpen(true);
-    } else {
-      setSidebarOpen(false);
-    }
-  }, [isMobile]);
-
-  const confirmEndAdminSession = () => {
+  const confirmEndAdminSession = async () => {
     setLogoutVisible(false);
+    await clearAuth();
     clearAdminAuth();
-    navigation.reset({ index: 0, routes: [{ name: 'AdminLogin' }] });
+    navigation.reset({ index: 0, routes: [{ name: 'SignIn' }] });
+  };
+
+  const navigateFromMenu = (routeName) => {
+    setMenuOpen(false);
+    navigation.navigate(routeName);
   };
 
   const Sidebar = () => (
-    <View style={[styles.sidebar, isMobile && { position: 'absolute', left: 0, top: 0, bottom: 0, zIndex: 200 }]}>
+    <View style={styles.sidebar}>
       <View style={styles.sidebarHeader}>
         <Text style={styles.logoText}>AGRIX <Text style={{ color: theme.colors.brand }}>ADMIN</Text></Text>
         <Text style={styles.subLogoText}>Control Panel</Text>
@@ -104,70 +111,55 @@ export default function AdminDashboardScreen({ navigation }) {
           <Text style={styles.menuText}>User Management</Text>
         </HoverPressable>
 
-        <HoverPressable style={styles.menuItem} onPress={() => navigation.navigate('AdminProfile')}>
-          <Settings size={20} color={theme.colors.textMuted} />
-          <Text style={styles.menuText}>Settings & Profile</Text>
-        </HoverPressable>
-      </View>
-
-      <View style={styles.sidebarFooter}>
-        <HoverPressable 
-          style={{ flexDirection: 'row', alignItems: 'center' }} 
-          onPress={() => setLogoutVisible(true)}
-        >
-          <LogOut size={20} color={theme.colors.danger} />
-          <Text style={{ color: theme.colors.danger, marginLeft: 12, fontWeight: '600' }}>Logout</Text>
-        </HoverPressable>
       </View>
     </View>
   );
 
   return (
-    <View style={styles.container}>
-      {isMobile && sidebarOpen && (
-        <TouchableOpacity 
-          style={styles.overlay} 
-          activeOpacity={1} 
-          onPress={() => setSidebarOpen(false)} 
-        />
-      )}
-
+    <View style={[styles.container, { position: 'relative' }]}>
       <View style={styles.mainLayout}>
-        {sidebarOpen && <Sidebar />}
+        {!isMobile && <Sidebar />}
 
         <View style={styles.contentArea}>
           {/* Top Header */}
-          <View style={styles.topHeader}>
+          <View style={[styles.topHeader, isMobile && { paddingHorizontal: 12 }]}>
             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-              {isMobile && (
-                <HoverPressable onPress={() => setSidebarOpen(!sidebarOpen)} style={styles.mobileMenuButton}>
-                  <Menu size={24} color={theme.colors.text} />
-                </HoverPressable>
-              )}
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
-                <HoverPressable style={styles.actionButton} onPress={() => navigation.reset({ index: 0, routes: [{ name: 'AdminLogin' }] })}>
+                <HoverPressable style={styles.actionButton} onPress={() => navigation.reset({ index: 0, routes: [{ name: 'SignIn' }] })}>
                   <Text style={styles.actionButtonText}>Back</Text>
                 </HoverPressable>
                 <Text style={styles.pageTitle}>Overview</Text>
               </View>
             </View>
             
-            <View style={styles.headerActions}>
+            <View style={[styles.headerActions, isMobile && { gap: 8 }]}>
                <AgriXLogo onPress={() => navigation.reset({ index: 0, routes: [{ name: 'AdminDashboard' }] })} variant="navbar" scale={0.9} />
-               <HoverPressable style={styles.actionButton} onPress={load}>
-                 <Text style={styles.actionButtonText}>Refresh Data</Text>
-               </HoverPressable>
-               <View style={{ width: 1, height: 24, backgroundColor: theme.colors.border }} />
+               {!isMobile ? (
+                 <>
+                   <HoverPressable style={styles.actionButton} onPress={load}>
+                     <Text style={styles.actionButtonText}>Refresh Data</Text>
+                   </HoverPressable>
+                   <View style={{ width: 1, height: 24, backgroundColor: theme.colors.border }} />
+                 </>
+               ) : null}
                <HoverPressable style={styles.actionButton} onPress={() => navigation.navigate('Notifications', { audience: 'admin' })}>
                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                    <Bell size={20} color={theme.colors.textMuted} />
                    {adminUnread > 0 ? <Text style={{ color: theme.colors.danger, fontWeight: '800' }}>{adminUnread}</Text> : null}
                  </View>
                </HoverPressable>
-               <HoverPressable style={styles.actionButton} onPress={() => navigation.navigate('AdminProfile')}>
-                 <User size={20} color={theme.colors.textMuted} />
-               </HoverPressable>
-               <HoverPressable style={styles.actionButton} onPress={() => setSidebarOpen((v) => !v)}>
+               {!isMobile ? (
+                 <HoverPressable style={styles.actionButton} onPress={() => navigation.navigate('AdminProfile')} accessibilityLabel="My profile">
+                   <User size={20} color={theme.colors.textMuted} />
+                 </HoverPressable>
+               ) : null}
+               <HoverPressable
+                 style={styles.actionButton}
+                 onPress={() => setMenuOpen((open) => !open)}
+                 accessibilityRole="button"
+                 accessibilityLabel="Open admin menu"
+                 accessibilityState={{ expanded: menuOpen }}
+               >
                  <Menu size={20} color={theme.colors.textMuted} />
                </HoverPressable>
             </View>
@@ -248,7 +240,7 @@ export default function AdminDashboardScreen({ navigation }) {
             <View style={styles.recentTable}>
               <View style={styles.tableHeader}>
                 <Text style={[styles.headerCell, { flex: 2 }]}>User</Text>
-                <Text style={[styles.headerCell, { flex: 1.5 }]}>Role</Text>
+                <Text style={[styles.headerCell, { flex: 1.5 }]}>Account</Text>
                 <Text style={[styles.headerCell, { flex: 1 }]}>Status</Text>
                 <Text style={[styles.headerCell, { flex: 1, textAlign: 'right' }]}>Joined</Text>
               </View>
@@ -261,16 +253,14 @@ export default function AdminDashboardScreen({ navigation }) {
                 data.recentUsers.map((user) => (
                   <View key={user.id} style={styles.tableRow}>
                     <View style={[styles.cell, { flex: 2 }]}>
-                      <Text style={{ fontWeight: '600', color: theme.colors.text }}>{user.name || 'Unnamed'}</Text>
+                      <Text style={{ fontWeight: '600', color: theme.colors.text }}>
+                        {user.fullName || [user.firstName || user.first_name, user.lastName || user.last_name].filter(Boolean).join(' ').trim() || user.name || 'Unnamed'}
+                      </Text>
                       <Text style={{ fontSize: 12, color: theme.colors.textMuted }}>{user.email}</Text>
                     </View>
                     <View style={[styles.cell, { flex: 1.5 }]}>
                       <Text style={{ fontSize: 13, color: theme.colors.text }}>
-                        {String(user.role || '').toLowerCase() === 'farm_owner'
-                          ? 'Farm Owner'
-                          : user.isAdmin || String(user.role || '').toLowerCase() === 'admin'
-                            ? 'Administrator'
-                            : 'Farmer'}
+                        {user.isAdmin || String(user.role || '').toLowerCase() === 'admin' ? 'Administrator' : 'User'}
                       </Text>
                     </View>
                     <View style={[styles.cell, { flex: 1 }]}>
@@ -301,7 +291,7 @@ export default function AdminDashboardScreen({ navigation }) {
                     </View>
                     <View style={[styles.cell, { flex: 1, alignItems: 'flex-end' }]}>
                       <Text style={{ fontSize: 13, color: theme.colors.textMuted }}>
-                        {new Date(user.createdAt).toLocaleDateString()}
+                        {formatJoinedDate(user.createdAt || user.created_at || user.joinedAt || user.joined_at)}
                       </Text>
                     </View>
                   </View>
@@ -312,6 +302,44 @@ export default function AdminDashboardScreen({ navigation }) {
           </ScreenTransition>
         </View>
       </View>
+
+      {menuOpen ? (
+        <>
+          <TouchableOpacity
+            style={styles.dropdownBackdrop}
+            activeOpacity={1}
+            onPress={() => setMenuOpen(false)}
+            accessibilityLabel="Close admin menu"
+          />
+          <View style={styles.userMenuDropdown}>
+            {isMobile ? (
+              <>
+                <HoverPressable style={styles.dropdownItem} onPress={() => navigateFromMenu('AdminDashboard')}>
+                  <LayoutDashboard size={18} color={theme.colors.textMuted} />
+                  <Text style={styles.dropdownItemText}>Admin Dashboard</Text>
+                </HoverPressable>
+                <HoverPressable style={styles.dropdownItem} onPress={() => navigateFromMenu('AdminUsers')}>
+                  <Users size={18} color={theme.colors.textMuted} />
+                  <Text style={styles.dropdownItemText}>User Management</Text>
+                </HoverPressable>
+                <View style={styles.dropdownDivider} />
+              </>
+            ) : null}
+            <HoverPressable style={styles.dropdownItem} onPress={() => navigateFromMenu('AdminProfile')}>
+              <Settings size={18} color={theme.colors.textMuted} />
+              <Text style={styles.dropdownItemText}>My Profile & Settings</Text>
+            </HoverPressable>
+            <View style={styles.dropdownDivider} />
+            <HoverPressable
+              style={styles.dropdownItem}
+              onPress={() => { setMenuOpen(false); setLogoutVisible(true); }}
+            >
+              <LogOut size={18} color={theme.colors.danger} />
+              <Text style={[styles.dropdownItemText, { color: theme.colors.danger }]}>Logout</Text>
+            </HoverPressable>
+          </View>
+        </>
+      ) : null}
 
       <ConfirmDialog
         visible={logoutVisible}

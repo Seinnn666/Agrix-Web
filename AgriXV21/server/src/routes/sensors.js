@@ -28,15 +28,25 @@ function requireDeviceKey(req) {
   return { ok: false, error: 'Unauthorized device', code: 'DEVICE_UNAUTHORIZED' };
 }
 
+function logSensorQueryFailure(route, error) {
+  console.error(`[sensors/${route}] query failed:`, {
+    message: error?.message || 'Unknown database query error',
+    code: error?.code,
+    details: error?.details,
+    hint: error?.hint,
+    stack: error?.stack,
+  });
+}
+
 function rowToReadingDto(row) {
   const created = row?.createdAt || row?.created_at || row?.createdat;
   const ms = created ? Date.parse(String(created)) : 0;
   return {
     id: String(row?._id || row?.id || ''),
-    deviceId: String(row?.deviceId || row?.device_id || ''),
+    deviceId: String(row?.deviceId || row?.device_id || row?.deviceid || ''),
     temperature: normalizeNumber(row?.temperature),
     humidity: normalizeNumber(row?.humidity),
-    soilMoisture: normalizeNumber(row?.soilMoisture ?? row?.soil_moisture),
+    soilMoisture: normalizeNumber(row?.soilMoisture ?? row?.soil_moisture ?? row?.soilmoisture),
     soilPh: normalizeNumber(row?.soilPh ?? row?.soil_ph),
     createdAt: Number.isFinite(ms) && ms > 0 ? ms : Date.now(),
   };
@@ -82,15 +92,10 @@ async function insertReading(supabase, payload, userId) {
   return first;
 }
 
-function applyUserFilter(query, userId) {
-  if (!userId) return query;
-  return query.or(`userId.eq.${userId},user_id.eq.${userId}`);
-}
-
 async function querySensorHistory(supabase, { userId, deviceId, limit, beforeIso }) {
-  const userColumns = userId ? ['userId', 'user_id'] : [null];
-  const timestampColumns = ['createdAt', 'created_at'];
-  const deviceColumns = deviceId ? ['deviceId', 'device_id'] : [null];
+  const userColumns = userId ? ['userId', 'user_id', 'userid'] : [null];
+  const timestampColumns = ['createdAt', 'created_at', 'createdat'];
+  const deviceColumns = deviceId ? ['deviceId', 'device_id', 'deviceid'] : [null];
   let lastError = null;
 
   for (const userColumn of userColumns) {
@@ -171,25 +176,16 @@ router.get('/latest', requireAuth, async (req, res) => {
   try {
     const deviceId = String(req.query?.deviceId || req.query?.device_id || '').trim();
     const supabase = getSupabaseAdmin();
-    let q = supabase.from('sensor_readings').select('*').order('createdAt', { ascending: false }).limit(1);
-    q = applyUserFilter(q, req.userId);
-    if (deviceId) q = q.eq('deviceId', deviceId);
-    let data;
-    let error;
-    ({ data, error } = await q);
+    const { data, error } = await querySensorHistory(supabase, { userId: req.userId, deviceId, limit: 1, beforeIso: '' });
     if (error) {
-      const msg = String(error?.message || '');
-      if (/userId|user_id|column/i.test(msg)) {
-        let q2 = supabase.from('sensor_readings').select('*').order('createdAt', { ascending: false }).limit(1);
-        if (deviceId) q2 = q2.eq('deviceId', deviceId);
-        ({ data, error } = await q2);
-      }
+      logSensorQueryFailure('latest', error);
+      return res.status(500).json({ error: 'Failed to load reading', code: 'SENSOR_LATEST_QUERY_FAILED' });
     }
-    if (error) return res.status(500).json({ error: 'Failed to load reading' });
     const row = Array.isArray(data) ? data[0] : null;
     return res.json({ reading: row ? rowToReadingDto(row) : null });
-  } catch (_err) {
-    return res.status(500).json({ error: 'Failed to load reading' });
+  } catch (err) {
+    logSensorQueryFailure('latest', err);
+    return res.status(500).json({ error: 'Failed to load reading', code: 'SENSOR_LATEST_QUERY_FAILED' });
   }
 });
 
@@ -204,13 +200,13 @@ router.get('/history', requireAuth, async (req, res) => {
     const supabase = getSupabaseAdmin();
     const { data, error } = await querySensorHistory(supabase, { userId: req.userId, deviceId, limit, beforeIso });
     if (error) {
-      console.error('[sensors/history] database query failed:', error);
+      logSensorQueryFailure('history', error);
       return res.status(500).json({ error: 'Failed to load readings', code: 'SENSOR_HISTORY_QUERY_FAILED' });
     }
     const readings = (Array.isArray(data) ? data : []).map(rowToReadingDto);
     return res.json({ readings });
   } catch (err) {
-    console.error('[sensors/history] handler failed:', err);
+    logSensorQueryFailure('history', err);
     return res.status(500).json({ error: 'Failed to load readings', code: 'SENSOR_HISTORY_QUERY_FAILED' });
   }
 });

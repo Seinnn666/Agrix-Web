@@ -334,9 +334,12 @@ async function requestJson(path, options) {
       ? 'The profile API rejected the request (401).'
       : (data?.error || 'Request failed');
     const err = new Error(message);
-    if (res.status === 401) err.code = 'API_AUTH_REJECTED';
+    if (res.status === 401) {
+      err.code = 'API_AUTH_REJECTED';
+      if (data?.code) err.serverCode = data.code;
+    }
     if (data?.fieldErrors) err.fieldErrors = data.fieldErrors;
-    if (data?.code) err.code = data.code;
+    if (res.status !== 401 && data?.code) err.code = data.code;
     if (typeof data?.retryAfterSeconds === 'number') err.retryAfterSeconds = data.retryAfterSeconds;
     if (data?.userId) err.userId = data.userId;
     if (data?.email) err.email = data.email;

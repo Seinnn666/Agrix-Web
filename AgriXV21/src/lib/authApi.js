@@ -545,8 +545,12 @@ export async function getMe() {
   try {
     return await requestJson('/auth/me', { method: 'GET' });
   } catch (err) {
+    if (isWeb() && err?.code === 'API_AUTH_REJECTED') {
+      await clearAuth();
+      throw err;
+    }
     const message = String(err?.message || '');
-    if (isWeb() && (message.startsWith('Cannot reach API') || err?.code === 'API_AUTH_REJECTED')) {
+    if (isWeb() && message.startsWith('Cannot reach API')) {
       try {
         const supabase = getSupabaseBrowser();
         const { data } = await supabase.auth.getUser();

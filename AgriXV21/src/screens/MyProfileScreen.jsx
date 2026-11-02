@@ -273,6 +273,10 @@ export default function MyProfileScreen({ navigation }) {
         setStatus('ready');
       } catch (err) {
         if (cancelled) return;
+        if (err?.code === 'API_AUTH_REJECTED') {
+          navigation.reset({ index: 0, routes: [{ name: 'SignIn' }] });
+          return;
+        }
         setStatus('error');
         setError(err?.message || 'Failed to load profile');
       }

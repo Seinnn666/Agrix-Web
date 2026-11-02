@@ -87,6 +87,29 @@ function applyUserFilter(query, userId) {
   return query.or(`userId.eq.${userId},user_id.eq.${userId}`);
 }
 
+async function querySensorHistory(supabase, { userId, deviceId, limit, beforeIso }) {
+  const userColumns = userId ? ['userId', 'user_id'] : [null];
+  const timestampColumns = ['createdAt', 'created_at'];
+  const deviceColumns = deviceId ? ['deviceId', 'device_id'] : [null];
+  let lastError = null;
+
+  for (const userColumn of userColumns) {
+    for (const timestampColumn of timestampColumns) {
+      for (const deviceColumn of deviceColumns) {
+        let query = supabase.from('sensor_readings').select('*').order(timestampColumn, { ascending: false }).limit(limit);
+        if (userColumn) query = query.eq(userColumn, userId);
+        if (deviceColumn) query = query.eq(deviceColumn, deviceId);
+        if (beforeIso) query = query.lt(timestampColumn, beforeIso);
+        const result = await query;
+        if (!result.error) return result;
+        lastError = result.error;
+      }
+    }
+  }
+
+  return { data: null, error: lastError || new Error('Failed to query sensor history') };
+}
+
 router.post('/ingest', async (req, res) => {
   try {
     const auth = requireDeviceKey(req);
@@ -179,27 +202,16 @@ router.get('/history', requireAuth, async (req, res) => {
     const beforeIso = Number.isFinite(beforeMs) && beforeMs > 0 ? new Date(beforeMs).toISOString() : '';
 
     const supabase = getSupabaseAdmin();
-    let q = supabase.from('sensor_readings').select('*').order('createdAt', { ascending: false }).limit(limit);
-    q = applyUserFilter(q, req.userId);
-    if (deviceId) q = q.eq('deviceId', deviceId);
-    if (beforeIso) q = q.lt('createdAt', beforeIso);
-    let data;
-    let error;
-    ({ data, error } = await q);
+    const { data, error } = await querySensorHistory(supabase, { userId: req.userId, deviceId, limit, beforeIso });
     if (error) {
-      const msg = String(error?.message || '');
-      if (/userId|user_id|column/i.test(msg)) {
-        let q2 = supabase.from('sensor_readings').select('*').order('createdAt', { ascending: false }).limit(limit);
-        if (deviceId) q2 = q2.eq('deviceId', deviceId);
-        if (beforeIso) q2 = q2.lt('createdAt', beforeIso);
-        ({ data, error } = await q2);
-      }
+      console.error('[sensors/history] database query failed:', error);
+      return res.status(500).json({ error: 'Failed to load readings', code: 'SENSOR_HISTORY_QUERY_FAILED' });
     }
-    if (error) return res.status(500).json({ error: 'Failed to load readings' });
     const readings = (Array.isArray(data) ? data : []).map(rowToReadingDto);
     return res.json({ readings });
-  } catch (_err) {
-    return res.status(500).json({ error: 'Failed to load readings' });
+  } catch (err) {
+    console.error('[sensors/history] handler failed:', err);
+    return res.status(500).json({ error: 'Failed to load readings', code: 'SENSOR_HISTORY_QUERY_FAILED' });
   }
 });
 

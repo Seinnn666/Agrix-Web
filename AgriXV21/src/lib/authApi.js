@@ -321,7 +321,7 @@ async function requestJson(path, options) {
     if (!looksJson || data === null) {
       if ((res.status === 404 || res.status === 502 || res.status === 503) && hasNext) continue;
       if (res.status === 401) {
-        const authError = new Error('The profile API rejected the request (401).');
+        const authError = new Error('The API rejected the request (401).');
         authError.code = 'API_AUTH_REJECTED';
         throw authError;
       }
@@ -331,7 +331,7 @@ async function requestJson(path, options) {
     }
 
     const message = res.status === 401
-      ? 'The profile API rejected the request (401).'
+      ? 'The API rejected the request (401).'
       : (data?.error || 'Request failed');
     const err = new Error(message);
     if (res.status === 401) {
@@ -351,6 +351,10 @@ async function requestJson(path, options) {
     throw new Error(`Cannot reach API. Tried: ${API_BASE_URLS.join(', ')}`);
   }
   throw lastErr || new Error(`Cannot reach API. Tried: ${API_BASE_URLS.join(', ')}`);
+}
+
+export function getApiJson(path) {
+  return requestJson(path, { method: 'GET' });
 }
 
 export async function fetchUserNotifications() {

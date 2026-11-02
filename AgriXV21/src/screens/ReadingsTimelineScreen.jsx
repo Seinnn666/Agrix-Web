@@ -8,7 +8,7 @@ import ScreenTransition from '../components/ScreenTransition';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { dashboardStyles as layoutStyles } from '../components/dashboard/dashboardStyles';
 import { theme } from '../ui/theme';
-import { API_BASE_URL, loadAuth, clearAuth } from '../lib/authApi';
+import { getApiJson, clearAuth } from '../lib/authApi';
 import { clearAdminAuth, hasAdminPanelAccess } from '../lib/adminApi';
 import { ChevronRight, Moon, Sun } from '../components/Icons';
 import { getThemeMode, setThemeMode as setAppTheme, subscribeTheme } from '../lib/themePref';
@@ -113,32 +113,11 @@ export default function ReadingsTimelineScreen({ navigation, route }) {
   };
 
   const fetchHistoryPage = async ({ limit = 500, before = 0 } = {}) => {
-    const token = String(loadAuth()?.token || '').trim();
-    if (!token) {
-      const err = new Error('Unauthorized');
-      err.code = 'UNAUTHORIZED';
-      throw err;
-    }
-
     const qs = new URLSearchParams();
     qs.set('limit', String(Math.max(1, Math.min(500, Number(limit) || 500))));
     if (before && Number.isFinite(Number(before)) && Number(before) > 0) qs.set('before', String(Math.floor(Number(before))));
-    const url = `${API_BASE_URL}/sensors/history?${qs.toString()}`;
-
-    let res;
-    try {
-      res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-    } catch (_err) {
-      throw new Error(`Cannot reach API at ${API_BASE_URL}. Start the backend and try again.`);
-    }
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      const err = new Error(data?.error || 'Failed to load history');
-      err.code = data?.code;
-      throw err;
-    }
-    const list = Array.isArray(data?.readings) ? data.readings : [];
-    return list;
+    const data = await getApiJson(`/sensors/history?${qs.toString()}`);
+    return Array.isArray(data?.readings) ? data.readings : [];
   };
 
   const loadHistoryForRange = async (nextRange) => {
@@ -179,10 +158,12 @@ export default function ReadingsTimelineScreen({ navigation, route }) {
       setHistoryReadings(combined);
       setHistoryStatus({ loading: false, error: '' });
     } catch (err) {
-      setHistoryReadings([]);
-      setHistoryHasMore(false);
-      setHistoryCursor(0);
-      setHistoryStatus({ loading: false, error: err?.message || 'Failed to load history' });
+      const message = err?.code === 'API_AUTH_REJECTED'
+        ? 'Session expired. Please log in again.'
+        : err?.code === 'SENSOR_HISTORY_QUERY_FAILED'
+          ? 'The server could not query reading history. Check the server log for details.'
+          : (err?.message || 'Failed to load history');
+      setHistoryStatus({ loading: false, error: message });
     }
   };
 
@@ -202,7 +183,12 @@ export default function ReadingsTimelineScreen({ navigation, route }) {
       setHistoryReadings(combined);
       setHistoryStatus({ loading: false, error: '' });
     } catch (err) {
-      setHistoryStatus({ loading: false, error: err?.message || 'Failed to load more history' });
+      setHistoryStatus({
+        loading: false,
+        error: err?.code === 'API_AUTH_REJECTED'
+          ? 'Session expired. Please log in again.'
+          : err?.message || 'Failed to load more history',
+      });
     }
   };
 
@@ -357,7 +343,7 @@ export default function ReadingsTimelineScreen({ navigation, route }) {
   const LineChart = ({ chartKey, title, unit, xLabel, yLabel, color, series, recommendedBand, thresholdLines }) => {
     const [cursorTs, setCursorTs] = useState(0);
     const [cursorVisible, setCursorVisible] = useState(false);
-    const w = Math.min(920, Math.max(320, Number(windowWidth || 800) - 120));
+    const w = Math.max(320, Number(windowWidth || 800) - 120);
     const h = 220;
     const padL = 62;
     const padR = 18;
@@ -900,6 +886,10 @@ export default function ReadingsTimelineScreen({ navigation, route }) {
                       <View style={[layoutStyles.card, isDark && styles.cardDark]}>
                         <Text style={[styles.errorText, isDark && { color: '#FCA5A5' }]}>{historyStatus.error}</Text>
                       </View>
+                    ) : historyStatus.loading ? (
+                      <View style={[layoutStyles.card, isDark && styles.cardDark]}>
+                        <Text style={[styles.emptyText, isDark && styles.mutedDark]}>Loading readings…</Text>
+                      </View>
                     ) : null}
 
                     <View style={layoutStyles.ctaRow}>
@@ -928,7 +918,7 @@ export default function ReadingsTimelineScreen({ navigation, route }) {
                   </View>
                 )}
 
-                {filtered.length === 0 ? (
+                {filtered.length === 0 && (!isGraphMode || (!historyStatus.error && !historyStatus.loading)) ? (
                   <View style={[layoutStyles.card, isDark && styles.cardDark]}>
                     <Text style={[styles.emptyText, isDark && styles.mutedDark]}>No readings for this filter.</Text>
                   </View>

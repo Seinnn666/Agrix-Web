@@ -1,5 +1,5 @@
 import jwt from 'jsonwebtoken';
-import { getSupabaseAdmin, getSupabaseAuthVerifier } from '../lib/db.js';
+import { getSupabaseAdmin } from '../lib/db.js';
 
 const AUTH_LOG_WINDOW_MS = 30_000;
 const lastAuthLogAt = new Map();
@@ -47,7 +47,7 @@ export async function requireAuth(req, res, next) {
       }
     }
 
-    const verifier = getSupabaseAuthVerifier();
+    const verifier = getSupabaseAdmin();
     const { data, error } = await verifier.auth.getUser(token);
     const authUser = data?.user || null;
     if (error || !authUser?.id) {

@@ -877,9 +877,18 @@ export async function clearAuth() {
   }
 }
 
-export function startWebAuthSync() {
-  if (!isWeb()) return () => {};
+export function startWebAuthSync(onReady) {
+  if (!isWeb()) {
+    onReady?.();
+    return () => {};
+  }
   const supabase = getSupabaseBrowser();
+  let readySignaled = false;
+  const signalReady = () => {
+    if (readySignaled) return;
+    readySignaled = true;
+    onReady?.();
+  };
 
   const hydrateProfile = async () => {
     try {
@@ -902,19 +911,25 @@ export function startWebAuthSync() {
 
   supabase.auth
     .getSession()
-    .then(({ data }) => {
+    .then(({ data, error }) => {
+      if (error) return;
       const session = data?.session || null;
-      if (!session) return;
+      if (!session) {
+        const cachedToken = String(loadAuth()?.token || '');
+        if (cachedToken && !isLegacyApiToken(cachedToken)) saveAuth('', null);
+        return;
+      }
       const token = String(session.access_token || '');
       const user = session.user ? mapSupabaseUserToPublicUser(session.user) : null;
       if (token) saveAuth(token, user);
       hydrateProfile();
     })
-    .catch(() => {});
+    .catch(() => {})
+    .finally(signalReady);
 
-  const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+  const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
     if (!session) {
-      saveAuth('', null);
+      if (event === 'SIGNED_OUT') saveAuth('', null);
       return;
     }
     const token = String(session.access_token || '');

@@ -130,6 +130,7 @@ function computeInitialRoute() {
 export default function App() {
   const markActivityRef = React.useRef(() => {});
   const inactivityLogoutStartedRef = React.useRef(false);
+  const [authReady, setAuthReady] = React.useState(!IS_WEB);
   const [sessionPopup, setSessionPopup] = React.useState({ visible: false, title: '', message: '' });
   const stackScreenOptions =
     IS_WEB
@@ -150,8 +151,14 @@ export default function App() {
 
   React.useEffect(() => {
     if (!IS_WEB) return;
-    const stop = startWebAuthSync();
-    return stop;
+    let active = true;
+    const stop = startWebAuthSync(() => {
+      if (active) setAuthReady(true);
+    });
+    return () => {
+      active = false;
+      stop();
+    };
   }, []);
 
   React.useEffect(() => {
@@ -269,6 +276,10 @@ export default function App() {
       removeWebListeners();
     };
   }, []);
+
+  if (IS_WEB && !authReady) {
+    return <SafeAreaProvider><View style={{ minHeight: '100vh', backgroundColor: '#FFFFFF' }} /></SafeAreaProvider>;
+  }
 
   return (
     <SafeAreaProvider>

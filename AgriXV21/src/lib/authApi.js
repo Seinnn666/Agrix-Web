@@ -420,7 +420,6 @@ export async function registerUser(payload) {
 
   return {
     requiresVerification: started?.requiresVerification !== false,
-    userId: started?.userId,
     email: started?.email || email,
     otpSent: started?.otpSent,
     otpError: started?.otpError,

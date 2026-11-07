@@ -146,7 +146,6 @@ export default function SignUpScreen({ navigation }) {
           {
             name: 'VerifyRegistration',
             params: {
-              userId: data.userId,
               email: data.email || validation.sanitized.email,
               otpSent: data.otpSent,
               otpError: data.otpError,

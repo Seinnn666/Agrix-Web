@@ -7,7 +7,7 @@ import { theme } from '../ui/theme';
 import { formatCountdown, useCountdown } from '../hooks/useCountdown';
 
 export default function VerifyRegistrationScreen({ navigation, route }) {
-  const { userId, email, otpSent, otpError, retryAfterSeconds } = route?.params || {};
+  const { email, otpSent, otpError, retryAfterSeconds } = route?.params || {};
   const emailStorageKey = 'agrix.pending-verification.email';
   const [storedEmail] = useState(() => {
     const fromRoute = String(email || '').trim();
@@ -74,22 +74,28 @@ export default function VerifyRegistrationScreen({ navigation, route }) {
       setStatus('');
       setIsSubmitting(true);
       if (!resolvedEmail) {
-        setError('Please sign in to continue verification.');
+        setError('Something went wrong. Please go back to Sign In and try again.');
         return;
       }
       if (otp.length !== 6) {
         setError('Please enter the 6-digit code.');
         return;
       }
-      const data = await verifyRegistration({ userId, email: resolvedEmail, code: otp });
+      await verifyRegistration({ email: resolvedEmail, code: otp });
       try { window?.sessionStorage?.removeItem(emailStorageKey); } catch (_err) {}
       navigation.reset({ index: 0, routes: [{ name: 'SignIn' }] });
     } catch (err) {
       if (err?.code === 'OTP_LOCKED' && typeof err?.retryAfterSeconds === 'number') {
-        setError('Too many attempts. Please try again later.');
+        setError('Too many incorrect codes. Please try again later.');
         return;
       }
-      setError(err?.message || 'Verification failed');
+      if (['OTP_INVALID', 'OTP_EXPIRED', 'USER_ID_REQUIRED', 'EMAIL_REQUIRED'].includes(err?.code)) {
+        setError(err.code === 'USER_ID_REQUIRED' || err.code === 'EMAIL_REQUIRED'
+          ? 'Something went wrong. Please go back to Sign In and try again.'
+          : 'Invalid or expired code. Please try again or resend a code.');
+        return;
+      }
+      setError('Something went wrong. Please go back to Sign In and try again.');
     } finally {
       setIsSubmitting(false);
     }
@@ -100,23 +106,29 @@ export default function VerifyRegistrationScreen({ navigation, route }) {
       setError('');
       setStatus('');
       if (resendCountdown.remainingSeconds > 0) return;
-      if (!userId && !resolvedEmail) {
-        setError('Missing verification details. Please sign in again.');
+      if (!resolvedEmail) {
+        setError('Something went wrong. Please go back to Sign In and try again.');
         return;
       }
       setIsSubmitting(true);
-      await resendVerification({ userId, email: resolvedEmail });
+      await resendVerification({ email: resolvedEmail });
       setStatus('Code resent. Please check your email.');
     } catch (err) {
       if ((err?.code === 'OTP_RESEND_LIMIT' || err?.status === 429) && typeof err?.retryAfterSeconds === 'number') {
         resendCountdown.startCountdown(err.retryAfterSeconds);
         return;
       }
-      setError(err?.message || 'Failed to resend');
+      if (['USER_ID_REQUIRED', 'EMAIL_REQUIRED'].includes(err?.code)) {
+        setError('Something went wrong. Please go back to Sign In and try again.');
+      } else {
+        setError('Could not resend the code. Please try again.');
+      }
     } finally {
       setIsSubmitting(false);
     }
   };
+
+  if (!resolvedEmail) return null;
 
   return (
     <SafeAreaView style={styles.container} edges={[]}>

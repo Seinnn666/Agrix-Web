@@ -16,13 +16,17 @@ test('rejects expired, already-used, and mismatched tokens', () => {
   assert.equal(isResetTokenValid('other-token', hashCode(token), new Date(now + 60_000).toISOString(), now), false);
 });
 
-test('classifies valid, expired, used, invalid, and replaced reset links distinctly', () => {
+test('classifies valid, expired, used, and invalid reset links distinctly', () => {
   const expiry = new Date(now + 60_000).toISOString();
   const expired = new Date(now - 60_000).toISOString();
   assert.equal(getResetTokenStatus(token, hashCode(token), expiry, false, now), 'valid');
   assert.equal(getResetTokenStatus(token, hashCode(token), expired, false, now), 'expired');
   assert.equal(getResetTokenStatus(token, hashCode(token), expiry, true, now), 'used');
   assert.equal(getResetTokenStatus('invalid-token', hashCode(token), expiry, false, now), 'invalid');
+});
+
+test('a newer reset link invalidates the previously issued link', () => {
+  const expiry = new Date(now + 60_000).toISOString();
   assert.equal(getResetTokenStatus(token, hashCode('new-reset-link'), expiry, false, now), 'invalid');
 });
 

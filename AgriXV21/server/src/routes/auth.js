@@ -80,6 +80,19 @@ function getPr(row, field) {
   return getJsonbField(row, 'passwordReset', field);
 }
 
+function redactResetErrorText(value) {
+  return String(value || '')
+    .replace(/\b[a-f0-9]{64}\b/gi, '[REDACTED_TOKEN]')
+    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[REDACTED_EMAIL]')
+    .replace(/((?:confirm)?password\s*[:=]\s*)[^\s,}]+/gi, '$1[REDACTED]');
+}
+
+function logResetRouteError(routeName, error) {
+  const message = redactResetErrorText(error?.message || error);
+  const stack = error?.stack ? redactResetErrorText(error.stack) : '';
+  console.error(`[${routeName}] ${message}${stack ? `\n${stack}` : ''}`);
+}
+
 function parseUniqueViolation(err, { email = '', phone = '' } = {}) {
   const fieldInfo = { email: false, phone: false, other: false };
   if (err?.code !== '23505') return fieldInfo;
@@ -1029,7 +1042,10 @@ router.post('/validate-reset-token', async (req, res) => {
       .select('"passwordReset.tokenHash","passwordReset.expiresAt","passwordReset.used"')
       .filter('"passwordReset.tokenHash"', 'eq', tokenHash)
       .maybeSingle();
-    if (error) return res.status(500).json({ error: 'Could not validate reset link' });
+    if (error) {
+      logResetRouteError('auth.validate-reset-token', error);
+      return res.status(500).json({ error: 'Could not validate reset link' });
+    }
     const status = getResetTokenStatus(
       token,
       getPr(user, 'tokenHash'),
@@ -1043,7 +1059,8 @@ router.post('/validate-reset-token', async (req, res) => {
       return res.status(400).json({ error: 'This reset link is invalid. Please request a new one.', code: 'RESET_INVALID', status: 'invalid' });
     }
     return res.json({ status: 'valid' });
-  } catch (_err) {
+  } catch (err) {
+    logResetRouteError('auth.validate-reset-token', err);
     return res.status(500).json({ error: 'Could not validate reset link' });
   }
 });
@@ -1069,7 +1086,10 @@ router.post('/reset-password', async (req, res) => {
       .select('*')
       .filter('"passwordReset.tokenHash"', 'eq', tokenHash)
       .maybeSingle();
-    if (error) return res.status(500).json({ error: 'Failed to reset password' });
+    if (error) {
+      logResetRouteError('auth.reset-password.lookup', error);
+      return res.status(500).json({ error: 'Failed to reset password' });
+    }
 
     const resetStatus = getResetTokenStatus(
       t,
@@ -1100,13 +1120,20 @@ router.post('/reset-password', async (req, res) => {
       .filter('"passwordReset.used"', 'eq', false)
       .select('*')
       .maybeSingle();
-    if (updateErr) return res.status(500).json({ error: 'Failed to reset password' });
+    if (updateErr) {
+      logResetRouteError('auth.reset-password.update', updateErr);
+      return res.status(500).json({ error: 'Failed to reset password' });
+    }
     if (!updated) {
-      const { data: current } = await supabase
+      const { data: current, error: currentErr } = await supabase
         .from('users')
         .select('"passwordReset.tokenHash","passwordReset.expiresAt","passwordReset.used"')
         .eq('_id', user._id)
         .maybeSingle();
+      if (currentErr) {
+        logResetRouteError('auth.reset-password.state-lookup', currentErr);
+        return res.status(500).json({ error: 'Failed to reset password' });
+      }
       const currentStatus = getResetTokenStatus(
         t,
         getPr(current, 'tokenHash'),
@@ -1120,7 +1147,8 @@ router.post('/reset-password', async (req, res) => {
 
     const authToken = signToken(updated);
     return res.json({ token: authToken, user: userRowToPublic(updated) });
-  } catch (_err) {
+  } catch (err) {
+    logResetRouteError('auth.reset-password', err);
     return res.status(500).json({ error: 'Failed to reset password' });
   }
 });

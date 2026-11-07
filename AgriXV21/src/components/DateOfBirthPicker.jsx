@@ -17,6 +17,7 @@ export default function DateOfBirthPicker({ value, onChange, error, allowInvalid
   
   const [viewMode, setViewMode] = useState('calendar'); // 'calendar', 'month', 'year'
   const [validationPopupVisible, setValidationPopupVisible] = useState(false);
+  const [validationMessage, setValidationMessage] = useState('You must be at least 18 years old to register.');
 
   // Initialize state from value prop
   useEffect(() => {
@@ -45,9 +46,8 @@ export default function DateOfBirthPicker({ value, onChange, error, allowInvalid
     today.setHours(0, 0, 0, 0);
     const selectedDay = new Date(newDate.getFullYear(), newDate.getMonth(), newDate.getDate());
     if (selectedDay > today) {
-      // Keep the invalid value visible so the form can show its field-level message.
-      onChange(formatted);
-      setModalVisible(false);
+      setValidationMessage('Date of birth cannot be in the future.');
+      setValidationPopupVisible(true);
       return;
     }
     
@@ -130,7 +130,6 @@ export default function DateOfBirthPicker({ value, onChange, error, allowInvalid
               month === selectedDate.getMonth() && 
               year === selectedDate.getFullYear();
             
-            const isFutureDate = Boolean(day && new Date(year, month, day) > new Date(new Date().getFullYear(), new Date().getMonth(), new Date().getDate()));
             return (
               <TouchableOpacity
                 key={index}
@@ -140,7 +139,7 @@ export default function DateOfBirthPicker({ value, onChange, error, allowInvalid
                   isSelected && styles.dayCellSelected
                 ]}
                 onPress={() => day && handleDaySelect(day)}
-                disabled={!day || isFutureDate}
+                disabled={!day}
               >
                 {day && (
                   <Text style={[
@@ -289,7 +288,7 @@ export default function DateOfBirthPicker({ value, onChange, error, allowInvalid
           <View style={[styles.modalContent, styles.alertContent]} onStartShouldSetResponder={() => true}>
              <Text style={styles.alertTitle}>Age Restriction</Text>
              <Text style={styles.alertMessage}>
-               You must be at least 18 years old to register.
+               {validationMessage}
              </Text>
              <TouchableOpacity 
                style={styles.alertButton} 

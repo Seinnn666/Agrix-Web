@@ -24,4 +24,6 @@ test('server validators enforce shared Cycle 1 field rules', () => {
   assert.equal(validateDateOfBirth('2000-01-01', new Date(2026, 10, 7)), null);
   assert.equal(validateRegistrationPhone('0976220225'), 'Phone number must be 11 digits (you entered 10)');
   assert.equal(validateRegistrationPhone('09762202225'), null);
+  assert.equal(validateRegistrationPhone('+63976220225'), 'Phone number must be 11 digits (you entered 10)');
+  assert.equal(validateRegistrationPhone('+639762202225'), null);
 });

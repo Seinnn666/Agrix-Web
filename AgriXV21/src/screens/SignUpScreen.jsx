@@ -4,7 +4,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { CommonActions } from '@react-navigation/native';
 import AgriXLogo from '../components/AgriXLogo';
 import { registerUser } from '../lib/authApi';
-import { getPhoneRules, normalizePhoneInput, validateSignUpForm } from '../lib/validation';
+import { getPasswordStrength, getPhoneRules, normalizePhoneInput, validateSignUpForm } from '../lib/validation';
 import HoverPressable from '../components/HoverPressable';
 import ScreenTransition from '../components/ScreenTransition';
 import DateOfBirthPicker from '../components/DateOfBirthPicker';
@@ -39,17 +39,7 @@ export default function SignUpScreen({ navigation }) {
   const isThemeAnimatingRef = useRef(false);
   const [infoDialog, setInfoDialog] = useState({ visible: false, title: '', message: '' });
 
-  const passwordChecks = useMemo(() => {
-    const p = String(password || '');
-    const checks = [
-      { key: 'len', label: 'At least 8 characters', ok: p.length >= 8 },
-      { key: 'letter', label: 'Contains a letter (A–Z)', ok: /[A-Za-z]/.test(p) },
-      { key: 'number', label: 'Contains a number (0–9)', ok: /\d/.test(p) },
-      { key: 'special', label: 'Contains a special character', ok: /[^A-Za-z0-9]/.test(p) },
-    ];
-    const score = checks.reduce((sum, c) => sum + (c.ok ? 1 : 0), 0);
-    return { checks, score };
-  }, [password]);
+  const passwordChecks = useMemo(() => getPasswordStrength(password), [password]);
 
   const passwordStrength = useMemo(() => {
     const score = Number(passwordChecks.score || 0);
@@ -394,7 +384,7 @@ export default function SignUpScreen({ navigation }) {
                     value={firstName}
                     onChangeText={(v) => { clearFieldError('firstName'); setFirstName(String(v || '').replace(/\d/g, '')); }}
                     onBlur={() => validateFieldOnBlur('firstName')}
-                    maxLength={37}
+                    maxLength={35}
                     autoComplete="given-name"
                     textContentType="givenName"
                   />
@@ -411,7 +401,7 @@ export default function SignUpScreen({ navigation }) {
                     value={lastName}
                     onChangeText={(v) => { clearFieldError('lastName'); setLastName(String(v || '').replace(/\d/g, '')); }}
                     onBlur={() => validateFieldOnBlur('lastName')}
-                    maxLength={37}
+                    maxLength={35}
                     autoComplete="family-name"
                     textContentType="familyName"
                   />

@@ -42,8 +42,10 @@ export default function DateOfBirthPicker({ value, onChange, error, allowInvalid
 
     const formatted = `${newDate.getFullYear()}-${String(newDate.getMonth() + 1).padStart(2, '0')}-${String(newDate.getDate()).padStart(2, '0')}`;
     const today = new Date();
-    today.setHours(23, 59, 59, 999);
-    if (newDate.getTime() > today.getTime()) {
+    today.setHours(0, 0, 0, 0);
+    const selectedDay = new Date(newDate.getFullYear(), newDate.getMonth(), newDate.getDate());
+    if (selectedDay > today) {
+      // Keep the invalid value visible so the form can show its field-level message.
       onChange(formatted);
       setModalVisible(false);
       return;
@@ -128,6 +130,7 @@ export default function DateOfBirthPicker({ value, onChange, error, allowInvalid
               month === selectedDate.getMonth() && 
               year === selectedDate.getFullYear();
             
+            const isFutureDate = Boolean(day && new Date(year, month, day) > new Date(new Date().getFullYear(), new Date().getMonth(), new Date().getDate()));
             return (
               <TouchableOpacity
                 key={index}
@@ -137,7 +140,7 @@ export default function DateOfBirthPicker({ value, onChange, error, allowInvalid
                   isSelected && styles.dayCellSelected
                 ]}
                 onPress={() => day && handleDaySelect(day)}
-                disabled={!day}
+                disabled={!day || isFutureDate}
               >
                 {day && (
                   <Text style={[

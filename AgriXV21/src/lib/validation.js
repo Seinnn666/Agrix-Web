@@ -42,8 +42,8 @@ export function validateName(name, label) {
   if (value.length < 2) {
     return { ok: false, value, message: `${label} must be at least 2 characters` };
   }
-  if (value.length > 36) {
-    return { ok: false, value, message: '36 is the maximum characters required' };
+  if (value.length > 35) {
+    return { ok: false, value, message: `${label} must be 35 characters or less` };
   }
   // Relaxed validation: allow any printable characters, not just English letters
   // Just check it doesn't contain mostly special symbols if needed, but for now length is enough safety
@@ -58,21 +58,20 @@ export function validateAddress(address) {
   return { ok: true, value };
 }
 
-export function validateDateOfBirth(value) {
+export function validateDateOfBirth(value, now = new Date()) {
   const raw = String(value || '').trim();
   if (!raw) return { ok: false, value: '', message: 'Date of birth is required' };
   if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return { ok: false, value: raw, message: 'Date of birth is invalid' };
   const parsed = new Date(`${raw}T00:00:00.000Z`);
   if (!Number.isFinite(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== raw) return { ok: false, value: raw, message: 'Date of birth is invalid' };
-  const now = new Date();
   const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-  if (raw > today) return { ok: false, value: raw, message: 'Birthdate cannot be a future date.' };
+  if (raw > today) return { ok: false, value: raw, message: 'Date of birth cannot be in the future' };
 
-  // 18+ Check
-  const cutoff = new Date();
-  cutoff.setFullYear(cutoff.getFullYear() - 18);
-  // If parsed date is AFTER the cutoff date (e.g. born in 2010, cutoff 2006), they are too young.
-  if (parsed > cutoff) {
+  // Compare calendar components so a date-only value is not shifted by timezone offsets.
+  const [year, month, day] = raw.split('-').map(Number);
+  let age = now.getFullYear() - year;
+  if (now.getMonth() + 1 < month || (now.getMonth() + 1 === month && now.getDate() < day)) age -= 1;
+  if (age < 18) {
     return { ok: false, value: raw, message: 'You must be at least 18 years old' };
   }
 
@@ -177,6 +176,12 @@ export function buildE164Phone(countryCode, phoneNumber) {
 
 export function validatePhoneE164(phoneE164, { required, countryCode, phoneNumber } = {}) {
   const value = String(phoneE164 || '').trim();
+  const local = normalizeDigits(phoneNumber);
+  if (countryCode && !local) {
+    return required
+      ? { ok: false, value: '', message: 'Phone number is required' }
+      : { ok: true, value: '' };
+  }
   if (!value) {
     return required
       ? { ok: false, value: '', message: 'Phone number is required' }
@@ -185,8 +190,9 @@ export function validatePhoneE164(phoneE164, { required, countryCode, phoneNumbe
 
   if (countryCode) {
     const rules = getPhoneRules(countryCode);
-    const local = normalizeDigits(phoneNumber);
-    if (local.length < 11) return { ok: false, value, message: 'Phone number is incomplete. Enter at least 11 digits.' };
+    if (rules.countryCode === '+63' && local.length !== 11) {
+      return { ok: false, value, message: `Phone number must be 11 digits (you entered ${local.length})` };
+    }
     if (!rules.validateLocal(local)) {
       return { ok: false, value, message: rules.message };
     }
@@ -220,6 +226,17 @@ export function validatePassword(password) {
     return { ok: false, value, message: 'Password must include at least one special character' };
   }
   return { ok: true, value };
+}
+
+export function getPasswordStrength(password) {
+  const value = String(password || '');
+  const checks = [
+    { key: 'len', label: 'At least 8 characters', ok: value.length >= 8 },
+    { key: 'letter', label: 'Contains a letter (A–Z)', ok: /[A-Za-z]/.test(value) },
+    { key: 'number', label: 'Contains a number (0–9)', ok: /\d/.test(value) },
+    { key: 'special', label: 'Contains a special character', ok: /[^A-Za-z0-9]/.test(value) },
+  ];
+  return { checks, score: checks.reduce((sum, check) => sum + (check.ok ? 1 : 0), 0) };
 }
 
 export function validateSignUpForm(values) {

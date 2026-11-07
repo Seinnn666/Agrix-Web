@@ -18,7 +18,7 @@ import AppFooter from '../components/AppFooter';
 import DateOfBirthPicker from '../components/DateOfBirthPicker';
 
 import { theme } from '../ui/theme';
-import { validateActiveEmail } from '../lib/validation';
+import { validateActiveEmail, validateAddress, validateDateOfBirth, validateGender, validateName, validatePhoneE164 } from '../lib/validation';
 
 const styles = StyleSheet.create({
   container: {
@@ -318,15 +318,21 @@ export default function AdminProfileScreen({ navigation }) {
       setError('');
       setSaving(true);
 
-      // Simple Name Validation
-      if (formData.firstName.trim().length < 2) throw new Error('First Name is too short');
-      if (formData.lastName.trim().length < 2) throw new Error('Last Name is too short');
-
-      // Phone validation
-      const cleanPhone = formData.phone.replace(/\D/g, '');
-      if (formData.phone && (cleanPhone.length < 7 || cleanPhone.length > 15)) {
-         throw new Error('Invalid phone number length');
-      }
+      const nextFieldErrors = {};
+      const firstName = validateName(formData.firstName, 'First name');
+      const lastName = validateName(formData.lastName, 'Last name');
+      const address = validateAddress(formData.address);
+      const dateOfBirth = validateDateOfBirth(formData.dateOfBirth);
+      const gender = validateGender(formData.gender);
+      const phone = validatePhoneE164(formData.phone, { required: false });
+      if (!firstName.ok) nextFieldErrors.firstName = firstName.message;
+      if (!lastName.ok) nextFieldErrors.lastName = lastName.message;
+      if (!address.ok) nextFieldErrors.address = address.message;
+      if (!dateOfBirth.ok) nextFieldErrors.dateOfBirth = dateOfBirth.message;
+      if (!gender.ok) nextFieldErrors.gender = gender.message;
+      if (!phone.ok) nextFieldErrors.phone = phone.message;
+      setFieldErrors(nextFieldErrors);
+      if (Object.keys(nextFieldErrors).length) return;
 
       const patch = { ...formData };
       
@@ -382,7 +388,8 @@ export default function AdminProfileScreen({ navigation }) {
   };
 
   const handleFieldChange = (key, text) => {
-    setFormData((prev) => ({ ...prev, [key]: text }));
+    const value = key === 'firstName' || key === 'lastName' ? String(text || '').replace(/\d/g, '') : text;
+    setFormData((prev) => ({ ...prev, [key]: value }));
     if (key === 'email') {
       const validation = validateActiveEmail(text);
       setFieldErrors((prev) => {
@@ -484,7 +491,8 @@ export default function AdminProfileScreen({ navigation }) {
                    {isEditing ? (
                      <DateOfBirthPicker
                         value={formData.dateOfBirth}
-                        onChange={(text) => setFormData({ ...formData, dateOfBirth: text })}
+                        onChange={(text) => { setFieldErrors((prev) => ({ ...prev, dateOfBirth: undefined })); setFormData({ ...formData, dateOfBirth: text }); }}
+                        error={fieldErrors.dateOfBirth}
                      />
                    ) : (
                      <Text style={styles.readOnlyText}>{user?.dateOfBirth ? user.dateOfBirth.split('T')[0] : 'Not set'}</Text>
@@ -530,6 +538,7 @@ export default function AdminProfileScreen({ navigation }) {
                       {user?.gender ? user.gender.replace(/_/g, ' ') : 'Not set'}
                     </Text>
                   )}
+                  {!!fieldErrors.gender && <Text style={styles.fieldError}>{fieldErrors.gender}</Text>}
                 </View>
               </View>
 

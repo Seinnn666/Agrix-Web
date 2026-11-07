@@ -743,9 +743,9 @@ export default function MyProfileScreen({ navigation }) {
                                   <TextInput
                                     style={[styles.input, styles.nameInput, isDark && styles.inputDark, fieldErrors.firstName && styles.inputError]}
                                     value={draft.firstName}
-                                    onChangeText={(v) => { setFieldErrors(e => ({...e, firstName: undefined})); setDraft(d => ({...d, firstName: v})); }}
+                                    onChangeText={(v) => { setFieldErrors(e => ({...e, firstName: undefined})); setDraft(d => ({...d, firstName: String(v || '').replace(/\d/g, '')})); }}
+                                    maxLength={35}
                                     placeholder="First"
-                                    maxLength={37}
                                   />
                                   {!!fieldErrors.firstName && <Text style={styles.fieldError}>{fieldErrors.firstName}</Text>}
                                 </View>
@@ -753,9 +753,9 @@ export default function MyProfileScreen({ navigation }) {
                                   <TextInput
                                     style={[styles.input, styles.nameInput, isDark && styles.inputDark, fieldErrors.lastName && styles.inputError]}
                                     value={draft.lastName}
-                                    onChangeText={(v) => { setFieldErrors(e => ({...e, lastName: undefined})); setDraft(d => ({...d, lastName: v})); }}
+                                    onChangeText={(v) => { setFieldErrors(e => ({...e, lastName: undefined})); setDraft(d => ({...d, lastName: String(v || '').replace(/\d/g, '')})); }}
+                                    maxLength={35}
                                     placeholder="Last"
-                                    maxLength={37}
                                   />
                                   {!!fieldErrors.lastName && <Text style={styles.fieldError}>{fieldErrors.lastName}</Text>}
                                 </View>

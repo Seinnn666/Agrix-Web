@@ -324,7 +324,21 @@ export default function AdminProfileScreen({ navigation }) {
       const address = validateAddress(formData.address);
       const dateOfBirth = validateDateOfBirth(formData.dateOfBirth);
       const gender = validateGender(formData.gender);
-      const phone = validatePhoneE164(formData.phone, { required: false });
+      const phoneValue = String(formData.phone || '').trim();
+      const phoneDigits = phoneValue.replace(/\D/g, '');
+      const phoneCountryCode = ['+63', '+1', '+44', '+91', '+61'].find((code) => phoneValue.startsWith(code)) || '';
+      const phoneNumber = phoneCountryCode === '+63' || phoneCountryCode === '+61'
+        ? `0${phoneDigits.slice(2)}`
+        : phoneCountryCode === '+1'
+          ? phoneDigits.slice(1)
+          : phoneCountryCode
+            ? phoneDigits.slice(2)
+            : undefined;
+      const phone = validatePhoneE164(phoneValue, {
+        required: false,
+        countryCode: phoneCountryCode || undefined,
+        phoneNumber,
+      });
       if (!firstName.ok) nextFieldErrors.firstName = firstName.message;
       if (!lastName.ok) nextFieldErrors.lastName = lastName.message;
       if (!address.ok) nextFieldErrors.address = address.message;

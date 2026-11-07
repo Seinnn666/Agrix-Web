@@ -18,6 +18,7 @@ import AppFooter from '../components/AppFooter';
 import DateOfBirthPicker from '../components/DateOfBirthPicker';
 
 import { theme } from '../ui/theme';
+import { validateActiveEmail } from '../lib/validation';
 
 const styles = StyleSheet.create({
   container: {
@@ -140,6 +141,9 @@ const styles = StyleSheet.create({
     borderColor: theme.colors.brand,
     backgroundColor: 'rgba(255, 255, 255, 0.8)',
   },
+  inputWrapperError: {
+    borderColor: theme.colors.danger,
+  },
   input: {
     flex: 1,
     fontSize: 16,
@@ -171,6 +175,12 @@ const styles = StyleSheet.create({
     color: theme.colors.danger,
     fontSize: 14,
     fontWeight: '500',
+  },
+  fieldError: {
+    marginTop: 6,
+    color: theme.colors.danger,
+    fontSize: 13,
+    fontWeight: '600',
   },
   actionButtons: {
     flexDirection: 'row',
@@ -238,6 +248,7 @@ export default function AdminProfileScreen({ navigation }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [fieldErrors, setFieldErrors] = useState({});
   const [isEditing, setIsEditing] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -296,15 +307,16 @@ export default function AdminProfileScreen({ navigation }) {
   }, [user]);
 
   const handleSave = async () => {
+    const emailValidation = validateActiveEmail(formData.email);
+    if (!emailValidation.ok) {
+      setFieldErrors({ email: emailValidation.message });
+      setError('');
+      return;
+    }
+    setFieldErrors({});
     try {
       setError('');
       setSaving(true);
-
-      // Validation
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(formData.email)) {
-        throw new Error('Invalid email address');
-      }
 
       // Simple Name Validation
       if (formData.firstName.trim().length < 2) throw new Error('First Name is too short');
@@ -322,6 +334,11 @@ export default function AdminProfileScreen({ navigation }) {
       setUser(updated);
       setIsEditing(false);
     } catch (err) {
+      if (err?.fieldErrors?.email) {
+        setFieldErrors({ email: err.fieldErrors.email });
+        setError('');
+        return;
+      }
       setError(err.message || 'Failed to update profile');
     } finally {
       setSaving(false);
@@ -364,6 +381,19 @@ export default function AdminProfileScreen({ navigation }) {
     setFormData((prev) => ({ ...prev, phone: val }));
   };
 
+  const handleFieldChange = (key, text) => {
+    setFormData((prev) => ({ ...prev, [key]: text }));
+    if (key === 'email') {
+      const validation = validateActiveEmail(text);
+      setFieldErrors((prev) => {
+        const next = { ...prev };
+        if (!text.trim() || validation.ok) delete next.email;
+        else next.email = validation.message;
+        return next;
+      });
+    }
+  };
+
   const renderInput = (label, key, placeholder, widthStyle = styles.col6, keyboardType = 'default', customOnChange = null) => {
     const isEdit = isEditing;
     const value = formData[key];
@@ -373,17 +403,26 @@ export default function AdminProfileScreen({ navigation }) {
       <View style={[styles.col, widthStyle]}>
         <Text style={styles.fieldLabel}>{label}</Text>
         {isEdit ? (
-          <View style={[styles.inputWrapper, styles.inputWrapperActive]}>
-            <TextInput
-              style={styles.input}
-              value={value}
-              onChangeText={customOnChange || ((text) => setFormData({ ...formData, [key]: text }))}
-              placeholder={placeholder}
-              placeholderTextColor={theme.colors.textMuted}
-              keyboardType={keyboardType}
-              maxLength={maxLength}
-            />
-          </View>
+          <>
+            <View style={[styles.inputWrapper, styles.inputWrapperActive, fieldErrors[key] && styles.inputWrapperError]}>
+              <TextInput
+                style={styles.input}
+                value={value}
+                onChangeText={customOnChange || ((text) => handleFieldChange(key, text))}
+                placeholder={placeholder}
+                placeholderTextColor={theme.colors.textMuted}
+                keyboardType={keyboardType}
+                autoCapitalize={key === 'email' ? 'none' : undefined}
+                autoComplete={key === 'email' ? 'email' : undefined}
+                onBlur={key === 'email' ? () => {
+                  const validation = validateActiveEmail(formData.email);
+                  setFieldErrors((prev) => ({ ...prev, ...(validation.ok ? { email: undefined } : { email: validation.message }) }));
+                } : undefined}
+                maxLength={maxLength}
+              />
+            </View>
+            {!!fieldErrors[key] && <Text style={styles.fieldError}>{fieldErrors[key]}</Text>}
+          </>
         ) : (
           <Text style={styles.readOnlyText}>{user?.[key] || 'Not set'}</Text>
         )}

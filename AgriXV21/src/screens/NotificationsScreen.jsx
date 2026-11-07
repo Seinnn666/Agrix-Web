@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Animated, Platform, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { theme } from '../ui/theme';
-import { listAdminActivity, getAdminActivitySeenAt, markAdminActivityRead } from '../lib/adminActivity';
+import { listAdminActivity, getAdminActivitySeenAt, markAdminActivityRead, clearAdminActivity } from '../lib/adminActivity';
 import AgriXLogo from '../components/AgriXLogo';
 import { ChevronRight, Moon, Sun } from '../components/Icons';
 import HoverPressable from '../components/HoverPressable';
@@ -29,6 +29,7 @@ import {
   unmuteNotification,
   subscribeNotifications,
   markAdminNotificationsRead,
+  clearAdminNotifications,
 } from '../lib/notifications';
 
 function formatDateTime(ts) {
@@ -63,6 +64,9 @@ export default function NotificationsScreen({ navigation }) {
   const fadeOpacity = useRef(new Animated.Value(1)).current;
   const isThemeAnimatingRef = useRef(false);
   const [logoutVisible, setLogoutVisible] = useState(false);
+  const [clearHistoryVisible, setClearHistoryVisible] = useState(false);
+  const [adminQuery, setAdminQuery] = useState('');
+  const [adminFilter, setAdminFilter] = useState('all');
   const adminView = hasAdminPanelAccess();
   const toAdminItems = () => [
     ...listAdminNotifications(),
@@ -91,10 +95,6 @@ export default function NotificationsScreen({ navigation }) {
   useEffect(() => {
     const refresh = () => setItems(getVisibleItems());
     const unsubscribe = subscribeNotifications(refresh);
-    if (adminView) {
-      markAdminActivityRead();
-      markAdminNotificationsRead();
-    }
     refresh();
     if (adminView) {
       const timer = setInterval(refresh, 1500);
@@ -109,20 +109,43 @@ export default function NotificationsScreen({ navigation }) {
     return unsub;
   }, []);
 
+  const filteredItems = useMemo(() => {
+    if (!adminView) return items;
+    const query = adminQuery.trim().toLowerCase();
+    return items.filter((item) => {
+      const text = `${item.title || ''} ${item.message || ''} ${item.key || ''}`.toLowerCase();
+      if (query && !text.includes(query)) return false;
+      if (adminFilter === 'updates' && !String(item.key || '').includes('update')) return false;
+      if (adminFilter === 'deletions' && !String(item.key || '').includes('delete')) return false;
+      if (adminFilter === 'access' && !String(item.key || '').includes('admin_access')) return false;
+      if (adminFilter === 'unread' && item.read) return false;
+      return true;
+    });
+  }, [items, adminView, adminQuery, adminFilter]);
   const unreadCount = items.filter((item) => !item.read).length;
 
   const handleRead = React.useCallback((id) => {
-    if (!adminView) markNotificationRead(id);
+    if (!adminView || !items.find((item) => item.id === id)?.adminActivity) markNotificationRead(id);
     setItems(getVisibleItems());
-  }, [adminView]);
+  }, [adminView, items]);
 
   const handleReadAll = React.useCallback(() => {
-    if (!adminView) markAllNotificationsRead();
+    if (adminView) {
+      markAdminActivityRead();
+      markAdminNotificationsRead();
+    } else {
+      markAllNotificationsRead();
+    }
     setItems(getVisibleItems());
   }, [adminView]);
 
   const handleClearAll = React.useCallback(() => {
-    if (!adminView) clearNotifications();
+    if (adminView) {
+      clearAdminActivity();
+      clearAdminNotifications();
+    } else {
+      clearNotifications();
+    }
     setItems(getVisibleItems());
   }, [adminView]);
 
@@ -269,11 +292,13 @@ export default function NotificationsScreen({ navigation }) {
               </View>
 
               <View style={layoutStyles.menuItems}>
-                <HoverPressable style={layoutStyles.menuItem} onPress={() => navigateAndClose(adminView ? 'AdminDashboard' : 'Dashboard')}>
-                  <Text style={[layoutStyles.menuText, isDark && { color: '#E5E7EB' }]} numberOfLines={1}>
-                    Home
-                  </Text>
-                </HoverPressable>
+                {!adminView ? (
+                  <HoverPressable style={layoutStyles.menuItem} onPress={() => navigateAndClose('Dashboard')}>
+                    <Text style={[layoutStyles.menuText, isDark && { color: '#E5E7EB' }]} numberOfLines={1}>
+                      Home
+                    </Text>
+                  </HoverPressable>
+                ) : null}
                 <HoverPressable style={layoutStyles.menuItem} onPress={() => navigateAndClose(adminView ? 'AdminProfile' : 'MyProfile')}>
                   <Text style={[layoutStyles.menuText, isDark && { color: '#E5E7EB' }]} numberOfLines={1}>
                     My Profile
@@ -309,7 +334,7 @@ export default function NotificationsScreen({ navigation }) {
                     </HoverPressable>
                   </>
                 ) : null}
-                <HoverPressable style={layoutStyles.menuItem} onPress={toggleTheme}>
+                {!adminView ? <HoverPressable style={layoutStyles.menuItem} onPress={toggleTheme}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
                       {isDark ? <Moon size={16} color="#4ADE80" /> : <Sun size={16} color={theme.colors.brandDark} />}
@@ -342,7 +367,7 @@ export default function NotificationsScreen({ navigation }) {
                       />
                     </View>
                   </View>
-                </HoverPressable>
+                </HoverPressable> : null}
               </View>
 
               <HoverPressable style={layoutStyles.logoutButton} onPress={handleLogout}>
@@ -363,12 +388,67 @@ export default function NotificationsScreen({ navigation }) {
             onCancel={() => setLogoutVisible(false)}
             onConfirm={confirmLogoutNow}
           />
+          <ConfirmDialog
+            visible={clearHistoryVisible}
+            title="Clear admin history?"
+            message="This removes the admin activity and admin notifications stored in this browser. User notifications will be kept."
+            confirmText="Clear history"
+            cancelText="Cancel"
+            destructive
+            onCancel={() => setClearHistoryVisible(false)}
+            onConfirm={() => {
+              setClearHistoryVisible(false);
+              handleClearAll();
+            }}
+          />
 
           <View style={[layoutStyles.contentBg, isDark && { backgroundColor: '#020617' }]}>
             <View style={layoutStyles.contentArea}>
               <ScrollView style={{ flex: 1 }} contentContainerStyle={[layoutStyles.scrollContent, { paddingBottom: 24 }]} showsVerticalScrollIndicator={false}>
                 <Text style={[layoutStyles.pageTitle, isDark && { color: '#F9FAFB' }]}>{adminView ? 'Admin Notifications' : 'Notifications'}</Text>
                 <Text style={[layoutStyles.pageSubtitle, isDark && { color: '#9CA3AF' }]}>{subtitle}</Text>
+
+                {adminView ? (
+                  <View style={styles.adminTools}>
+                    <TextInput
+                      style={[styles.adminSearch, isDark && styles.adminSearchDark]}
+                      value={adminQuery}
+                      onChangeText={setAdminQuery}
+                      placeholder="Search activity or email"
+                      placeholderTextColor={isDark ? '#9CA3AF' : theme.colors.textMuted}
+                      autoCapitalize="none"
+                      accessibilityLabel="Search admin notifications"
+                    />
+                    <View style={styles.adminFilterRow}>
+                      {[
+                        ['all', 'All'],
+                        ['unread', 'Unread'],
+                        ['updates', 'User updates'],
+                        ['deletions', 'Deletions'],
+                        ['access', 'Access changes'],
+                      ].map(([value, label]) => (
+                        <HoverPressable
+                          key={value}
+                          style={[styles.adminFilter, adminFilter === value && styles.adminFilterActive, isDark && styles.adminFilterDark]}
+                          onPress={() => setAdminFilter(value)}
+                        >
+                          <Text style={[styles.adminFilterText, adminFilter === value && styles.adminFilterTextActive, isDark && { color: '#D1D5DB' }]}>{label}</Text>
+                        </HoverPressable>
+                      ))}
+                    </View>
+                    <View style={styles.adminActionRow}>
+                      <Text style={[styles.resultCount, isDark && { color: '#9CA3AF' }]}>
+                        {filteredItems.length} of {items.length} activities
+                      </Text>
+                      <HoverPressable style={styles.adminActionButton} onPress={handleReadAll}>
+                        <Text style={styles.adminActionText}>Mark all as read</Text>
+                      </HoverPressable>
+                      <HoverPressable style={[styles.adminActionButton, styles.adminClearButton]} onPress={() => setClearHistoryVisible(true)}>
+                        <Text style={[styles.adminActionText, { color: theme.colors.danger }]}>Clear history</Text>
+                      </HoverPressable>
+                    </View>
+                  </View>
+                ) : null}
 
                 {!adminView && Platform.OS === 'web' && isWebNotificationsSupported() ? (
                   <>
@@ -416,12 +496,12 @@ export default function NotificationsScreen({ navigation }) {
 
                 <View style={{ height: 16 }} />
 
-                {items.length === 0 ? (
+                {filteredItems.length === 0 ? (
                   <View style={[layoutStyles.card, isDark && { backgroundColor: 'rgba(15, 23, 42, 0.85)', borderColor: '#1F2937' }]}>
-                    <Text style={[styles.emptyText, isDark && { color: '#9CA3AF' }]}>No updates yet.</Text>
+                    <Text style={[styles.emptyText, isDark && { color: '#9CA3AF' }]}>{items.length && adminView ? 'No activities match these filters.' : 'No updates yet.'}</Text>
                   </View>
                 ) : (
-                  items.map((item) => (
+                  filteredItems.map((item) => (
                     <HoverPressable
                       key={item.id}
                       style={[
@@ -524,6 +604,84 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     textAlign: 'center',
     paddingVertical: 10,
+  },
+  adminTools: {
+    marginTop: 18,
+    marginBottom: 4,
+    gap: 10,
+  },
+  adminSearch: {
+    minHeight: 46,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: 'rgba(255,255,255,0.85)',
+    paddingHorizontal: 14,
+    color: theme.colors.text,
+    fontSize: 14,
+  },
+  adminSearchDark: {
+    backgroundColor: 'rgba(15,23,42,0.85)',
+    borderColor: '#1F2937',
+    color: '#F9FAFB',
+  },
+  adminFilterRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  adminFilter: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: 'rgba(255,255,255,0.7)',
+  },
+  adminFilterDark: {
+    backgroundColor: 'rgba(15,23,42,0.85)',
+    borderColor: '#1F2937',
+  },
+  adminFilterActive: {
+    backgroundColor: 'rgba(34,197,94,0.12)',
+    borderColor: theme.colors.brand,
+  },
+  adminFilterText: {
+    color: theme.colors.textMuted,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  adminFilterTextActive: {
+    color: theme.colors.brandDark,
+  },
+  adminActionRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: 8,
+  },
+  resultCount: {
+    flex: 1,
+    minWidth: 130,
+    color: theme.colors.textMuted,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  adminActionButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 11,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: 'rgba(255,255,255,0.7)',
+  },
+  adminClearButton: {
+    borderColor: 'rgba(220,38,38,0.35)',
+  },
+  adminActionText: {
+    color: theme.colors.brandDark,
+    fontSize: 12,
+    fontWeight: '800',
   },
   unreadCard: {
     borderColor: theme.colors.brand,

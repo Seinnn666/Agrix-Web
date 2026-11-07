@@ -10,7 +10,7 @@ export function validateEmail(email) {
   return { ok, value: normalized };
 }
 
-const BLOCKED_EMAIL_DOMAINS = ['example.com', 'test.com', 'sample.com'];
+const BLOCKED_EMAIL_DOMAINS = ['example.com', 'test.com', 'sample.com', 'domain.com'];
 const PLACEHOLDER_EMAIL_MESSAGE = 'Please enter a valid, active email address (placeholder emails are not allowed).';
 
 export function validateActiveEmail(email) {

@@ -22,6 +22,14 @@ export function isValidEmail(value) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email);
 }
 
+export function isValidActiveEmail(value) {
+  const email = normalizeEmail(value);
+  if (!isValidEmail(email)) return false;
+  const domain = email.split('@')[1] || '';
+  const blockedDomains = ['example.com', 'test.com', 'sample.com', 'domain.com'];
+  return !blockedDomains.some((blocked) => domain === blocked || domain.endsWith(`.${blocked}`));
+}
+
 export function isValidName(value) {
   const v = normalizeSpaces(value);
   if (!v) return false;

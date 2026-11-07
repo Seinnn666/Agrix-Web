@@ -7,7 +7,7 @@ import ScreenTransition from '../components/ScreenTransition';
 import { clearAdminAuth, deleteAdminUser, hasAdminPanelAccess, listAdminUsers, updateAdminUser } from '../lib/adminApi';
 import { clearAuth } from '../lib/authApi';
 import { logAdminActivity } from '../lib/adminActivity';
-import { validateAddress, validateDateOfBirth, validateEmail, validateGender, validateName } from '../lib/validation';
+import { validateActiveEmail, validateAddress, validateDateOfBirth, validateGender, validateName, validatePhoneE164 } from '../lib/validation';
 import AdminUsersList from '../components/admin/AdminUsersList';
 import AdminUserEditModal from '../components/admin/AdminUserEditModal';
 import { adminUsersStyles as styles } from '../components/admin/adminUsersStyles';
@@ -112,29 +112,42 @@ export default function AdminUsersScreen({ navigation }) {
       setError(ln.message);
       return;
     }
-    const em = validateEmail(draft.email);
+    const em = validateActiveEmail(draft.email);
     if (!em.ok) {
-      setError('Invalid email address');
+      setError(em.message);
       return;
     }
-    // Phone validation is optional or checked by backend, but we can do basic check
-    if (draft.phone && draft.phone.length < 5) {
+    const phoneDigits = String(draft.phone || '').replace(/\D/g, '');
+    if (String(draft.phone || '').trim() && phoneDigits.length < 5) {
       setError('Phone number is too short');
       return;
     }
-    if (draft.address) {
-      const ad = validateAddress(draft.address);
-      if (!ad.ok) {
-        setError(ad.message);
-        return;
-      }
+    const rawPhone = String(draft.phone || '').trim();
+    const phMobileDigits = rawPhone.startsWith('+63')
+      ? phoneDigits.slice(2)
+      : /^09/.test(phoneDigits) ? phoneDigits.slice(1) : /^9/.test(phoneDigits) ? phoneDigits : null;
+    if (phMobileDigits !== null && phMobileDigits.length < 10) {
+      setError('Phone number is too short');
+      return;
     }
-    if (draft.dateOfBirth) {
-      const dob = validateDateOfBirth(draft.dateOfBirth);
-      if (!dob.ok) {
-        setError(dob.message);
-        return;
-      }
+    if (phMobileDigits !== null && !/^9\d{9}$/.test(phMobileDigits)) {
+      setError('For Philippines, enter an 11-digit mobile number starting with 09');
+      return;
+    }
+    const phone = validatePhoneE164(draft.phone, { required: false });
+    if (!phone.ok) {
+      setError(phone.message);
+      return;
+    }
+    const ad = validateAddress(draft.address);
+    if (!ad.ok) {
+      setError(ad.message);
+      return;
+    }
+    const dob = validateDateOfBirth(draft.dateOfBirth);
+    if (!dob.ok) {
+      setError(dob.message);
+      return;
     }
     const gn = validateGender(draft.gender);
     if (!gn.ok) {
@@ -151,9 +164,9 @@ export default function AdminUsersScreen({ navigation }) {
         firstName: fn.value,
         lastName: ln.value,
         email: em.value,
-        phone: draft.phone,
-        address: draft.address ? validateAddress(draft.address).value : '',
-        dateOfBirth: draft.dateOfBirth ? validateDateOfBirth(draft.dateOfBirth).value : '',
+        phone: phone.value,
+        address: ad.value,
+        dateOfBirth: dob.value,
         gender: gn.value,
         role: nextRole,
       });
@@ -167,7 +180,7 @@ export default function AdminUsersScreen({ navigation }) {
       setStatus('ready');
     } catch (err) {
       setStatus('error');
-      setError(err?.message || 'Failed to update user');
+      setError(Object.values(err?.fieldErrors || {})[0] || err?.message || 'Failed to update user');
     }
   };
 

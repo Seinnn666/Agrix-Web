@@ -219,12 +219,16 @@ export default function ReadingsTimelineScreen({ navigation, route }) {
     const now = Date.now();
     const windowMs = range === '24h' ? 24 * 60 * 60 * 1000 : range === '7d' ? 7 * 24 * 60 * 60 * 1000 : Infinity;
     return combinedReadings
-      .filter((r) => (windowMs === Infinity ? true : now - Number(r?.createdAt || 0) <= windowMs))
+      .filter((r) => {
+        const ts = Number(r?.createdAt);
+        if (!Number.isFinite(ts) || ts <= 0 || ts > now) return false;
+        return windowMs === Infinity || now - ts <= windowMs;
+      })
       .filter((r) => {
         if (metric === 'all') return true;
-        if (metric === 'humidity') return Number.isFinite(Number(r?.humidity));
-        if (metric === 'temperature') return Number.isFinite(Number(r?.temperature));
-        if (metric === 'soilMoisture') return Number.isFinite(Number(r?.soilMoisture));
+        if (metric === 'humidity') return r?.humidity != null && r.humidity !== '' && Number.isFinite(Number(r.humidity));
+        if (metric === 'temperature') return r?.temperature != null && r.temperature !== '' && Number.isFinite(Number(r.temperature));
+        if (metric === 'soilMoisture') return r?.soilMoisture != null && r.soilMoisture !== '' && Number.isFinite(Number(r.soilMoisture));
         return true;
       });
   }, [combinedReadings, metric, range]);
@@ -929,18 +933,24 @@ export default function ReadingsTimelineScreen({ navigation, route }) {
                           <Text style={[styles.rowTitle, isDark && { color: '#F9FAFB' }]}>{new Date(r.createdAt).toLocaleString()}</Text>
                           <Text style={[styles.rowMeta, isDark && styles.mutedDark]}>Source: {r.source || '—'}</Text>
                           <View style={styles.rowGrid}>
-                            <View style={styles.rowCell}>
-                              <Text style={[styles.cellLabel, isDark && styles.mutedDark]}>Temp</Text>
-                              <Text style={[styles.cellValue, isDark && styles.textDark]}>{fmtNumber(r.temperature, '°C')}</Text>
-                            </View>
-                            <View style={styles.rowCell}>
-                              <Text style={[styles.cellLabel, isDark && styles.mutedDark]}>Humidity</Text>
-                              <Text style={[styles.cellValue, isDark && styles.textDark]}>{fmtNumber(r.humidity, '%')}</Text>
-                            </View>
-                            <View style={styles.rowCell}>
-                              <Text style={[styles.cellLabel, isDark && styles.mutedDark]}>Bean moisture</Text>
-                              <Text style={[styles.cellValue, isDark && styles.textDark]}>{fmtNumber(r.soilMoisture, '%')}</Text>
-                            </View>
+                            {(metric === 'all' || metric === 'temperature') ? (
+                              <View style={styles.rowCell}>
+                                <Text style={[styles.cellLabel, isDark && styles.mutedDark]}>Temp</Text>
+                                <Text style={[styles.cellValue, isDark && styles.textDark]}>{fmtNumber(r.temperature, '°C')}</Text>
+                              </View>
+                            ) : null}
+                            {(metric === 'all' || metric === 'humidity') ? (
+                              <View style={styles.rowCell}>
+                                <Text style={[styles.cellLabel, isDark && styles.mutedDark]}>Humidity</Text>
+                                <Text style={[styles.cellValue, isDark && styles.textDark]}>{fmtNumber(r.humidity, '%')}</Text>
+                              </View>
+                            ) : null}
+                            {(metric === 'all' || metric === 'soilMoisture') ? (
+                              <View style={styles.rowCell}>
+                                <Text style={[styles.cellLabel, isDark && styles.mutedDark]}>Bean moisture</Text>
+                                <Text style={[styles.cellValue, isDark && styles.textDark]}>{fmtNumber(r.soilMoisture, '%')}</Text>
+                              </View>
+                            ) : null}
                           </View>
                         </View>
                       ))

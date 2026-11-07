@@ -84,6 +84,11 @@ export function markAdminActivityRead() {
   }
 }
 
+export function clearAdminActivity() {
+  save([]);
+  markAdminActivityRead();
+}
+
 export function listAdminActivity(limit = 20) {
   const items = load();
   const n = Math.max(1, Math.min(200, Number(limit) || 20));

@@ -243,6 +243,15 @@ export function markAdminNotificationsRead() {
   emitChange({ type: 'updated' });
 }
 
+export function clearAdminNotifications() {
+  const next = listNotifications().filter((item) => {
+    const audience = String(item?.audience || item?.role || '').trim().toLowerCase();
+    return audience !== 'admin' && audience !== 'administrators';
+  });
+  writeRaw(next);
+  emitChange({ type: 'updated' });
+}
+
 export function getUnreadNotificationsCount() {
   return listNotifications().filter((n) => !n?.read).length;
 }

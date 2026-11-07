@@ -5,6 +5,7 @@ import { requireAdmin } from '../middleware/adminAuth.js';
 import { getSupabaseAdmin, newObjectId } from '../lib/db.js';
 import {
   isValidEmail,
+  isValidActiveEmail,
   isValidName,
   isValidPhone,
   normalizeEmail,
@@ -199,8 +200,13 @@ router.patch('/profile', requireAdmin, async (req, res) => {
     }
     if (Object.prototype.hasOwnProperty.call(req.body || {}, 'email')) {
       const nextEmail = normalizeEmail(req.body.email);
+      if (!isValidEmail(nextEmail)) {
+        return res.status(400).json({ error: 'Validation failed', fieldErrors: { email: 'Enter a valid email address' } });
+      }
+      if (!isValidActiveEmail(nextEmail)) {
+        return res.status(400).json({ error: 'Validation failed', fieldErrors: { email: 'Please enter a valid, active email address (placeholder emails are not allowed).' } });
+      }
       if (nextEmail !== user.email) {
-        if (!isValidEmail(nextEmail)) return res.status(400).json({ error: 'Invalid email' });
         // Check uniqueness
         const supabase = getSupabaseAdmin();
         const { data: exists } = await supabase.from('users').select('_id').ilike('email', nextEmail).maybeSingle();
@@ -422,8 +428,25 @@ router.patch('/users/:id', requireAdmin, async (req, res) => {
     const fieldErrors = {};
     if (!isValidName(next.firstName)) fieldErrors.firstName = 'First name is invalid';
     if (!isValidName(next.lastName)) fieldErrors.lastName = 'Last name is invalid';
-    if (!isValidEmail(next.email)) fieldErrors.email = 'Email address is invalid';
+    if (!isValidActiveEmail(next.email)) fieldErrors.email = 'Please enter a valid, active email address (placeholder emails are not allowed).';
     if (next.phone && !isValidPhone(next.phone)) fieldErrors.phone = 'Phone number is invalid';
+    if (next.address.length < 5 || next.address.length > 160) fieldErrors.address = 'Address must be between 5 and 160 characters';
+    const dob = /^\d{4}-\d{2}-\d{2}$/.test(next.dateOfBirth)
+      ? new Date(`${next.dateOfBirth}T00:00:00.000Z`)
+      : null;
+    const validDob = dob && Number.isFinite(dob.getTime()) && dob.toISOString().slice(0, 10) === next.dateOfBirth;
+    if (!validDob) {
+      fieldErrors.dateOfBirth = 'Date of birth is invalid';
+    } else {
+      const cutoff = new Date();
+      cutoff.setFullYear(cutoff.getFullYear() - 18);
+      if (dob > cutoff) fieldErrors.dateOfBirth = next.dateOfBirth > new Date().toISOString().slice(0, 10)
+        ? 'Birthdate cannot be a future date.'
+        : 'You must be at least 18 years old';
+    }
+    if (!['male', 'female', 'rather_not_say'].includes(String(next.gender || '').trim().toLowerCase())) {
+      fieldErrors.gender = 'Gender is invalid';
+    }
 
     if (Object.keys(fieldErrors).length > 0) {
       return res.status(400).json({ error: 'Validation failed', fieldErrors });

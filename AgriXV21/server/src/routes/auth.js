@@ -7,7 +7,7 @@ import { generateOtpCode, generateSecureToken, hashCode, getResetTokenStatus } f
 import { sendPasswordResetEmail, sendRegistrationOtpEmail } from '../lib/emailjs.js';
 import { createWelcomeNotification } from './notifications.js';
 import { parseBool, userRowToPublic } from '../lib/supabaseMaps.js';
-import { emailNotVerifiedBody, requiresEmailVerification } from '../lib/authPolicy.js';
+import { emailNotVerifiedBody, findVerificationUser, hasOtpIdentifier, invalidOtpBody, isEmailOtpValid, requiresEmailVerification } from '../lib/authPolicy.js';
 import {
   isValidEmail,
   isValidName,
@@ -328,7 +328,7 @@ router.post('/register', async (req, res) => {
     catch (notificationErr) { console.error('Could not create signup welcome notification:', notificationErr?.message || notificationErr); }
 
     if (skipEmail) {
-      return res.status(201).json({ requiresVerification: false, userId: String(user._id), email: user.email });
+      return res.status(201).json({ requiresVerification: false, email: user.email });
     }
 
     let otpSent = true;
@@ -357,7 +357,6 @@ router.post('/register', async (req, res) => {
         requiresVerification: true,
         otpSent,
         otpError,
-        userId: String(user._id),
         email: user.email,
         ...(process.env.NODE_ENV !== 'production' ? { devOtpCode: otpCode } : {}),
       });
@@ -498,7 +497,7 @@ router.post('/start-verification', async (req, res) => {
     }
 
     if (skipEmail) {
-      return res.json({ requiresVerification: false, userId: String(user._id), email: user.email, otpSent: false });
+      return res.json({ requiresVerification: false, email: user.email, otpSent: false });
     }
 
     let otpSent = true;
@@ -524,7 +523,6 @@ router.post('/start-verification', async (req, res) => {
       requiresVerification: true,
       otpSent,
       otpError,
-      userId: String(user._id),
       email: user.email,
       ...(process.env.NODE_ENV !== 'production' ? { devOtpCode: otpCode } : {}),
     });
@@ -713,7 +711,7 @@ router.post('/login', async (req, res) => {
         'emailVerification.attempts': 0,
       }).eq('_id', user._id);
       await sendRegistrationOtpEmail({ toEmail: user.email, otpCode });
-      return res.status(403).json(emailNotVerifiedBody());
+      return res.status(403).json(emailNotVerifiedBody(user.email));
     }
 
     const token = signToken(user);
@@ -729,21 +727,13 @@ router.post('/verify-otp', async (req, res) => {
     const id = String(userId || '').trim();
     const em = normalizeEmail(email);
     const otp = String(code || '').trim();
-    if (!id && !isValidEmail(em)) return res.status(400).json({ error: 'Email is required', code: 'EMAIL_REQUIRED' });
+    if (!hasOtpIdentifier(id, em)) return res.status(400).json(invalidOtpBody());
     if (!/^\d{6}$/.test(otp)) return res.status(400).json({ error: 'Invalid code', code: 'OTP_INVALID' });
 
     const supabase = getSupabaseAdmin();
-    let { data: user, error } = id
-      ? await supabase.from('users').select('*').eq('_id', id).maybeSingle()
-      : await supabase.from('users').select('*').ilike('email', em).maybeSingle();
+    const { data: user, error } = await findVerificationUser(supabase, id, em);
     if (error) return res.status(500).json({ error: 'Verification failed' });
-    if (!user && isValidEmail(em)) {
-      const retry = await supabase.from('users').select('*').ilike('email', em).maybeSingle();
-      user = retry.data || null;
-      error = retry.error || null;
-      if (error) return res.status(500).json({ error: 'Verification failed' });
-    }
-    if (!user) return res.status(404).json({ error: 'User not found' });
+    if (!user) return res.status(400).json(invalidOtpBody());
 
     if (parseBool(user.isAdmin) || parseBool(user.emailVerified)) {
       return res.json({ ok: true });
@@ -752,22 +742,16 @@ router.post('/verify-otp', async (req, res) => {
     const now = Date.now();
     const expiresAt = getEv(user, 'expiresAt') ? new Date(getEv(user, 'expiresAt')).getTime() : 0;
     if (!expiresAt || expiresAt <= now) {
-      return res.status(400).json({ error: 'Code expired. Please resend.', code: 'OTP_EXPIRED' });
+      return res.status(400).json(invalidOtpBody());
     }
 
-    const expectedHash = String(getEv(user, 'codeHash') || '');
-    const actualHash = hashCode(otp);
-    if (!expectedHash || expectedHash !== actualHash) {
+    if (!isEmailOtpValid(user, otp)) {
       const nextAttempts = Number(getEv(user, 'attempts') || 0) + 1;
       await supabase.from('users').update({ 'emailVerification.attempts': nextAttempts }).eq('_id', user._id);
       if (nextAttempts >= OTP_MAX_ATTEMPTS) {
         return res.status(429).json({ error: 'Too many attempts. Try again later.', code: 'OTP_LOCKED', retryAfterSeconds: Math.ceil(OTP_LOCK_MS / 1000) });
       }
-      return res.status(400).json({
-        error: 'Invalid code',
-        code: 'OTP_INVALID',
-        attemptsRemaining: Math.max(0, OTP_MAX_ATTEMPTS - nextAttempts),
-      });
+      return res.status(400).json(invalidOtpBody());
     }
 
     const { error: updateErr } = await supabase
@@ -796,14 +780,12 @@ router.post('/resend-otp', async (req, res) => {
     const { userId, email } = req.body || {};
     const id = String(userId || '').trim();
     const em = normalizeEmail(email);
-    if (!id && !isValidEmail(em)) return res.status(400).json({ error: 'User ID is required', code: 'USER_ID_REQUIRED' });
+    if (!hasOtpIdentifier(id, em)) return res.status(400).json(invalidOtpBody());
 
     const supabase = getSupabaseAdmin();
-    let { data: user, error } = id
-      ? await supabase.from('users').select('*').eq('_id', id).maybeSingle()
-      : await supabase.from('users').select('*').ilike('email', em).maybeSingle();
+    const { data: user, error } = await findVerificationUser(supabase, id, em);
     if (error) return res.status(500).json({ error: 'Failed to resend code', code: 'EMAIL_SEND_FAILED' });
-    if (!user) return res.status(404).json({ error: 'User not found' });
+    if (!user) return res.status(400).json(invalidOtpBody());
 
     if (parseBool(user.isAdmin) || parseBool(user.emailVerified)) {
       return res.json({ ok: true });
@@ -851,16 +833,17 @@ router.post('/resend-otp', async (req, res) => {
 
 router.post('/verify-registration', async (req, res) => {
   try {
-    const { userId, code } = req.body || {};
+    const { userId, email, code } = req.body || {};
     const id = String(userId || '').trim();
+    const em = normalizeEmail(email);
     const otp = String(code || '').trim();
-    if (!id) return res.status(400).json({ error: 'User ID is required', code: 'USER_ID_REQUIRED' });
+    if (!hasOtpIdentifier(id, em)) return res.status(400).json(invalidOtpBody());
     if (!/^\d{6}$/.test(otp)) return res.status(400).json({ error: 'Invalid code', code: 'OTP_INVALID' });
 
     const supabase = getSupabaseAdmin();
-    const { data: user, error } = await supabase.from('users').select('*').eq('_id', id).maybeSingle();
+    const { data: user, error } = await findVerificationUser(supabase, id, em);
     if (error) return res.status(500).json({ error: 'Verification failed' });
-    if (!user) return res.status(404).json({ error: 'User not found' });
+    if (!user) return res.status(400).json(invalidOtpBody());
 
     if (parseBool(user.isAdmin) || parseBool(user.emailVerified)) {
       return res.json({ ok: true });
@@ -868,24 +851,16 @@ router.post('/verify-registration', async (req, res) => {
 
     const now = Date.now();
     const expiresAt = getEv(user, 'expiresAt') ? new Date(getEv(user, 'expiresAt')).getTime() : 0;
-    if (!expiresAt || expiresAt <= now) {
-      return res.status(400).json({ error: 'Code expired. Please resend.', code: 'OTP_EXPIRED' });
-    }
+    if (!expiresAt || expiresAt <= now) return res.status(400).json(invalidOtpBody());
 
-    const expectedHash = String(getEv(user, 'codeHash') || '');
-    const actualHash = hashCode(otp);
-    if (!expectedHash || expectedHash !== actualHash) {
+    if (!isEmailOtpValid(user, otp)) {
       const nextAttempts = Number(getEv(user, 'attempts') || 0) + 1;
-      await supabase.from('users').update({ 'emailVerification.attempts': nextAttempts }).eq('_id', id);
+      await supabase.from('users').update({ 'emailVerification.attempts': nextAttempts }).eq('_id', user._id);
       if (nextAttempts >= OTP_MAX_ATTEMPTS) {
         return res.status(429).json({ error: 'Too many attempts. Try again later.', code: 'OTP_LOCKED', retryAfterSeconds: Math.ceil(OTP_LOCK_MS / 1000) });
       }
 
-      return res.status(400).json({
-        error: 'Invalid code',
-        code: 'OTP_INVALID',
-        attemptsRemaining: Math.max(0, OTP_MAX_ATTEMPTS - nextAttempts),
-      });
+      return res.status(400).json(invalidOtpBody());
     }
 
     const { error: updateErr } = await supabase
@@ -899,7 +874,7 @@ router.post('/verify-registration', async (req, res) => {
         'emailVerification.resendWindowStart': null,
         'emailVerification.resendCount': 0,
       })
-      .eq('_id', id)
+      .eq('_id', user._id)
       .select('_id')
       .single();
     if (updateErr) return res.status(500).json({ error: 'Verification failed' });
@@ -912,14 +887,15 @@ router.post('/verify-registration', async (req, res) => {
 
 router.post('/resend-verification', async (req, res) => {
   try {
-    const { userId } = req.body || {};
+    const { userId, email } = req.body || {};
     const id = String(userId || '').trim();
-    if (!id) return res.status(400).json({ error: 'User ID is required', code: 'USER_ID_REQUIRED' });
+    const em = normalizeEmail(email);
+    if (!hasOtpIdentifier(id, em)) return res.status(400).json(invalidOtpBody());
 
     const supabase = getSupabaseAdmin();
-    const { data: user, error } = await supabase.from('users').select('*').eq('_id', id).maybeSingle();
+    const { data: user, error } = await findVerificationUser(supabase, id, em);
     if (error) return res.status(500).json({ error: 'Failed to resend code', code: 'EMAIL_SEND_FAILED' });
-    if (!user) return res.status(404).json({ error: 'User not found' });
+    if (!user) return res.status(400).json(invalidOtpBody());
 
     if (parseBool(user.isAdmin) || parseBool(user.emailVerified)) {
       return res.json({ ok: true });
@@ -953,7 +929,7 @@ router.post('/resend-verification', async (req, res) => {
         'emailVerification.resendCount': nextCount,
         'emailVerification.attempts': 0,
       })
-      .eq('_id', id);
+      .eq('_id', user._id);
 
     await sendRegistrationOtpEmail({ toEmail: user.email, otpCode });
     return res.json({ ok: true, ...(process.env.NODE_ENV !== 'production' ? { devOtpCode: otpCode } : {}) });

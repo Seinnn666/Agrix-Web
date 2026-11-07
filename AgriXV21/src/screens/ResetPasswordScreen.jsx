@@ -19,6 +19,14 @@ function readResetTokenFromUrl() {
   }
 }
 
+function getTokenStatusFromError(error) {
+  if (error?.code === 'RESET_EXPIRED') return 'expired';
+  if (error?.code === 'RESET_USED') return 'used';
+  if (error?.code === 'RESET_INVALID' || error?.code === 'RESET_EXPIRED_OR_USED') return 'invalid';
+  if (error?.code === 'API_NETWORK_ERROR' || Number(error?.status) >= 500) return 'error';
+  return 'invalid';
+}
+
 export default function ResetPasswordScreen({ navigation, route }) {
   const tokenFromRoute = String(route?.params?.resetToken || '').trim();
   const token = useMemo(() => tokenFromRoute || readResetTokenFromUrl(), [tokenFromRoute]);
@@ -62,10 +70,7 @@ export default function ResetPasswordScreen({ navigation, route }) {
       }
     }).catch((err) => {
       if (!active) return;
-      if (err?.code === 'RESET_EXPIRED') setTokenStatus('expired');
-      else if (err?.code === 'RESET_USED') setTokenStatus('used');
-      else if (err?.code === 'RESET_INVALID') setTokenStatus('invalid');
-      else setTokenStatus('error');
+      setTokenStatus(getTokenStatusFromError(err));
       setCanRetryValidation(err?.code === 'API_NETWORK_ERROR' || Number(err?.status) >= 500);
     }).finally(() => {
       if (active) setIsCheckingToken(false);
@@ -82,10 +87,7 @@ export default function ResetPasswordScreen({ navigation, route }) {
       await validateResetToken(token);
       setTokenStatus('valid');
     } catch (err) {
-      if (err?.code === 'RESET_EXPIRED') setTokenStatus('expired');
-      else if (err?.code === 'RESET_USED') setTokenStatus('used');
-      else if (err?.code === 'RESET_INVALID') setTokenStatus('invalid');
-      else setTokenStatus('error');
+      setTokenStatus(getTokenStatusFromError(err));
       setCanRetryValidation(err?.code === 'API_NETWORK_ERROR' || Number(err?.status) >= 500);
     } finally {
       setIsCheckingToken(false);
@@ -142,15 +144,16 @@ export default function ResetPasswordScreen({ navigation, route }) {
       setConfirmPassword('');
       setTimeout(() => navigation.reset({ index: 0, routes: [{ name: 'SignIn' }] }), 900);
     } catch (err) {
-      if (err?.code === 'RESET_EXPIRED') { setTokenStatus('expired'); return; }
-      if (err?.code === 'RESET_USED') { setTokenStatus('used'); return; }
-      if (err?.code === 'RESET_INVALID' || err?.code === 'RESET_EXPIRED_OR_USED') { setTokenStatus('invalid'); return; }
+      const nextTokenStatus = getTokenStatusFromError(err);
+      if (['expired', 'used', 'invalid'].includes(nextTokenStatus)) { setTokenStatus(nextTokenStatus); return; }
       if (err?.fieldErrors) {
         setFieldErrors(err.fieldErrors);
         setError('Please fix the highlighted fields');
         return;
       }
-      setError('We couldn’t reset your password. Check your connection and try again.');
+      setError(nextTokenStatus === 'error'
+        ? 'We couldn’t reset your password. Check your connection and try again.'
+        : 'We couldn’t reset your password. Please request a new reset link and try again.');
     } finally {
       setIsSubmitting(false);
     }

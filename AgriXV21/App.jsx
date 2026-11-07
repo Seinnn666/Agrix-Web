@@ -92,7 +92,16 @@ function safeSetItem(key, value) {
   }
 }
 
+function safeGetSessionItem(key) {
+  try {
+    if (typeof window !== 'undefined' && window.sessionStorage) return window.sessionStorage.getItem(key) || '';
+  } catch (_err) {
+  }
+  return '';
+}
+
 function computeInitialRoute() {
+  if (safeGetSessionItem('agrix.pending-verification.email')) return 'VerifyRegistration';
   const { token: userToken, user } = loadAuth();
   const { token: adminToken } = loadAdminAuth();
   const last = safeGetItem('agrix_last_route');
@@ -159,6 +168,22 @@ export default function App() {
       active = false;
       stop();
     };
+  }, []);
+
+  React.useEffect(() => {
+    if (!IS_WEB || typeof window === 'undefined') return;
+    const onUnverified = (event) => {
+      const email = String(event?.detail?.email || '').trim();
+      if (!navigationRef.isReady()) return;
+      navigationRef.resetRoot({
+        index: 0,
+        routes: [email
+          ? { name: 'VerifyRegistration', params: { email } }
+          : { name: 'SignIn' }],
+      });
+    };
+    window.addEventListener('agrix:email-unverified', onUnverified);
+    return () => window.removeEventListener('agrix:email-unverified', onUnverified);
   }, []);
 
   React.useEffect(() => {

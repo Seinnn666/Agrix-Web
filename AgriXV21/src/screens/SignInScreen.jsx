@@ -113,7 +113,7 @@ export default function SignInScreen({ navigation }) {
           if (err?.code === 'EMAIL_NOT_VERIFIED') {
             navigation.reset({
               index: 0,
-              routes: [{ name: 'VerifyRegistration', params: { userId: err.userId, email: err.email } }],
+              routes: [{ name: 'VerifyRegistration', params: { email: err.email || validation.sanitized.email, retryAfterSeconds: err.retryAfterSeconds } }],
             });
             return;
           }

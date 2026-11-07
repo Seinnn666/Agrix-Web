@@ -136,6 +136,10 @@ export default function SignUpScreen({ navigation }) {
       }
 
       const data = await registerUser(validation.sanitized);
+      if (data?.requiresVerification === false) {
+        navigation.reset({ index: 0, routes: [{ name: 'SignIn' }] });
+        return;
+      }
       navigation.reset({
         index: 0,
         routes: [

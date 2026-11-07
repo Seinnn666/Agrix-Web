@@ -2,12 +2,18 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ImageBackground, Pressable, StyleSheet, Text, TextInput, TouchableOpacity, View, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AgriXLogo from '../components/AgriXLogo';
-import { resendVerification, saveAuth, verifyRegistration } from '../lib/authApi';
+import { resendVerification, verifyRegistration } from '../lib/authApi';
 import { theme } from '../ui/theme';
 import { formatCountdown, useCountdown } from '../hooks/useCountdown';
 
 export default function VerifyRegistrationScreen({ navigation, route }) {
-  const { userId, email, otpSent, otpError } = route?.params || {};
+  const { userId, email, otpSent, otpError, retryAfterSeconds } = route?.params || {};
+  const emailStorageKey = 'agrix.pending-verification.email';
+  const [storedEmail] = useState(() => {
+    const fromRoute = String(email || '').trim();
+    if (fromRoute) return fromRoute;
+    try { return String(window?.sessionStorage?.getItem(emailStorageKey) || '').trim(); } catch (_err) { return ''; }
+  });
   const [digits, setDigits] = useState(['', '', '', '', '', '']);
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -16,6 +22,18 @@ export default function VerifyRegistrationScreen({ navigation, route }) {
   const hiddenInputRef = useRef(null);
   const resendAnnouncedRef = useRef(false);
   const resendCountdown = useCountdown('agrix.verify-registration.resend.endAt');
+
+  useEffect(() => {
+    if (retryAfterSeconds > 0) resendCountdown.startCountdown(retryAfterSeconds);
+  }, [retryAfterSeconds]);
+
+  useEffect(() => {
+    if (!storedEmail) {
+      navigation.reset({ index: 0, routes: [{ name: 'SignIn' }] });
+      return;
+    }
+    try { window?.sessionStorage?.setItem(emailStorageKey, storedEmail); } catch (_err) {}
+  }, [storedEmail, navigation]);
 
   useEffect(() => {
     if (resendCountdown.remainingSeconds > 0) {
@@ -32,8 +50,8 @@ export default function VerifyRegistrationScreen({ navigation, route }) {
   }, [resendCountdown.remainingSeconds]);
 
   const resolvedEmail = useMemo(() => {
-    return String(email || '').trim();
-  }, [email]);
+    return storedEmail;
+  }, [storedEmail]);
 
   const otp = useMemo(() => digits.join(''), [digits]);
 
@@ -55,8 +73,8 @@ export default function VerifyRegistrationScreen({ navigation, route }) {
       setError('');
       setStatus('');
       setIsSubmitting(true);
-      if (!userId) {
-        setError('Missing verification details. Please register again.');
+      if (!resolvedEmail) {
+        setError('Please sign in to continue verification.');
         return;
       }
       if (otp.length !== 6) {
@@ -64,12 +82,8 @@ export default function VerifyRegistrationScreen({ navigation, route }) {
         return;
       }
       const data = await verifyRegistration({ userId, email: resolvedEmail, code: otp });
-      if (Platform.OS === 'web') {
-        navigation.reset({ index: 0, routes: [{ name: 'SignIn' }] });
-        return;
-      }
-      saveAuth(data.token, data.user);
-      navigation.reset({ index: 0, routes: [{ name: 'Dashboard' }] });
+      try { window?.sessionStorage?.removeItem(emailStorageKey); } catch (_err) {}
+      navigation.reset({ index: 0, routes: [{ name: 'SignIn' }] });
     } catch (err) {
       if (err?.code === 'OTP_LOCKED' && typeof err?.retryAfterSeconds === 'number') {
         setError('Too many attempts. Please try again later.');
@@ -86,8 +100,8 @@ export default function VerifyRegistrationScreen({ navigation, route }) {
       setError('');
       setStatus('');
       if (resendCountdown.remainingSeconds > 0) return;
-      if (!userId) {
-        setError('Missing verification details. Please register again.');
+      if (!userId && !resolvedEmail) {
+        setError('Missing verification details. Please sign in again.');
         return;
       }
       setIsSubmitting(true);
@@ -121,9 +135,11 @@ export default function VerifyRegistrationScreen({ navigation, route }) {
             </View>
 
             {!!resolvedEmail ? <Text style={styles.emailText}>{resolvedEmail}</Text> : null}
-            <Text style={styles.title}>Approve Sign in Request</Text>
+            <Text style={styles.title}>Approve Sign In Request</Text>
             <Text style={styles.subtitle}>
-              {otpSent === false
+              {retryAfterSeconds > 0
+                ? 'Please verify your email to continue. Enter the 6-digit code sent to your account.'
+                : otpSent === false
                 ? 'We couldn’t send the code automatically. Tap Resend Code to try again.'
                 : 'An OTP code has been sent to your registered email. Please enter the 6-digit code below to continue.'}
             </Text>

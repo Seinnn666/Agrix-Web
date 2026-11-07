@@ -419,7 +419,7 @@ export async function registerUser(payload) {
   saveAuth('', null);
 
   return {
-    requiresVerification: true,
+    requiresVerification: started?.requiresVerification !== false,
     userId: started?.userId,
     email: started?.email || email,
     otpSent: started?.otpSent,
@@ -434,66 +434,21 @@ export async function loginUser(payload) {
       body: JSON.stringify(payload),
     });
   }
-
-  const supabase = getSupabaseBrowser();
-  const email = String(payload?.email || '').trim();
-  const password = String(payload?.password || '').trim();
-  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-  if (error) {
-    if (/invalid login credentials|user not found|email not confirmed/i.test(String(error.message || ''))) {
-      try {
-        const fallback = await requestJson('/auth/login', {
-          method: 'POST',
-          body: JSON.stringify({ email, password }),
-        });
-        const token = String(fallback?.token || '');
-        if (token && fallback?.user) {
-          saveAuth(token, fallback.user);
-          return fallback;
-        }
-      } catch (_fallbackError) {
-      }
-    }
-    const msg = String(error.message || 'Sign in failed');
-    const err = new Error(msg);
-    if (/email not confirmed/i.test(msg)) err.code = 'EMAIL_NOT_CONFIRMED';
-    throw err;
-  }
-  await requestJson('/auth/sync-password', {
-    method: 'POST',
-    body: JSON.stringify({ password }),
-  }).catch(() => null);
-  const accessToken = String(data?.session?.access_token || '');
-  const authUser = data?.user || null;
-  let user = authUser ? mapSupabaseUserToPublicUser(authUser) : null;
-  const profile = await requestJson('/auth/me', { method: 'GET' }).catch(() => null);
-  if (profile?.user) user = profile.user;
-
-  if (user && user.emailVerified === false) {
-    const userId = String(user?._id || user?.id || authUser?.id || '').trim();
-    const email = String(user?.email || authUser?.email || payload?.email || '').trim();
-    const started = await requestJson('/auth/start-verification', {
+  try {
+    const result = await requestJson('/auth/login', {
       method: 'POST',
-      body: JSON.stringify({ userId, email }),
-    }).catch(() => null);
-    try {
-      await supabase.auth.signOut();
-    } catch (_err) {
-    }
-    saveAuth('', null);
-    const err = new Error('Email not verified');
-    err.code = 'OTP_REQUIRED';
-    err.userId = userId;
-    err.email = email;
-    if (started) {
-      err.otpSent = started?.otpSent;
-      err.otpError = started?.otpError;
+      body: JSON.stringify(payload),
+    });
+    saveAuth(result.token, result.user);
+    return result;
+  } catch (err) {
+    if (err?.code === 'EMAIL_NOT_VERIFIED' || err?.code === 'OTP_RESEND_LIMIT') {
+      await clearAuth();
+      err.code = 'EMAIL_NOT_VERIFIED';
+      err.email = String(payload?.email || '').trim();
     }
     throw err;
   }
-
-  saveAuth(accessToken, user);
-  return { token: accessToken, user };
 }
 
 export async function forgotPassword(payload) {
@@ -915,7 +870,18 @@ export function startWebAuthSync(onReady) {
     try {
       const token = await getAuthToken();
       if (!token) return;
-      const data = await requestJson('/auth/me', { method: 'GET' }).catch(() => null);
+      let data;
+      try {
+        data = await requestJson('/auth/me', { method: 'GET' });
+      } catch (err) {
+        if (err?.code === 'EMAIL_NOT_VERIFIED') {
+          const pendingEmail = String(loadAuth()?.user?.email || '').trim();
+          try { if (pendingEmail) window.sessionStorage.setItem('agrix.pending-verification.email', pendingEmail); } catch (_err) {}
+          await clearAuth();
+          try { window.dispatchEvent(new CustomEvent('agrix:email-unverified', { detail: { email: pendingEmail } })); } catch (_err) {}
+        }
+        return;
+      }
       if (!data?.user) return;
       if (data.user.emailVerified === false) {
         try {
@@ -938,12 +904,13 @@ export function startWebAuthSync(onReady) {
       if (!session) {
         const cachedToken = String(loadAuth()?.token || '');
         if (cachedToken && !isLegacyApiToken(cachedToken)) saveAuth('', null);
+        if (cachedToken && isLegacyApiToken(cachedToken)) return hydrateProfile();
         return;
       }
       const token = String(session.access_token || '');
       const user = session.user ? mapSupabaseUserToPublicUser(session.user) : null;
       if (token) saveAuth(token, user);
-      hydrateProfile();
+      return hydrateProfile();
     })
     .catch(() => {})
     .finally(signalReady);

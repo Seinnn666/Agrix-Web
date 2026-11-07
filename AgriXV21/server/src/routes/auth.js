@@ -1026,12 +1026,16 @@ router.post('/validate-reset-token', async (req, res) => {
     const tokenHash = hashCode(token);
     const { data: user, error } = await supabase
       .from('users')
-      .select('passwordReset')
+      .select('"passwordReset.tokenHash","passwordReset.expiresAt","passwordReset.used"')
       .filter('"passwordReset.tokenHash"', 'eq', tokenHash)
       .maybeSingle();
     if (error) return res.status(500).json({ error: 'Could not validate reset link' });
-    const reset = user?.passwordReset || {};
-    const status = getResetTokenStatus(token, reset.tokenHash, reset.expiresAt, reset.used === true);
+    const status = getResetTokenStatus(
+      token,
+      getPr(user, 'tokenHash'),
+      getPr(user, 'expiresAt'),
+      getPr(user, 'used') === true
+    );
     if (status === 'expired') return res.status(410).json({ error: 'This reset link has expired. Please request a new one.', code: 'RESET_EXPIRED', status });
     if (status === 'used') return res.status(410).json({ error: 'This reset link has already been used. Please request a new one.', code: 'RESET_USED', status });
     if (status === 'invalid') return res.status(400).json({ error: 'This reset link is invalid. Please request a new one.', code: 'RESET_INVALID', status });
@@ -1069,9 +1073,9 @@ router.post('/reset-password', async (req, res) => {
 
     const resetStatus = getResetTokenStatus(
       t,
-      user?.passwordReset?.tokenHash,
-      user?.passwordReset?.expiresAt,
-      user?.passwordReset?.used === true,
+      getPr(user, 'tokenHash'),
+      getPr(user, 'expiresAt'),
+      getPr(user, 'used') === true,
       now
     );
     if (resetStatus === 'expired') return res.status(410).json({ error: 'This reset link has expired. Please request a new one.', code: 'RESET_EXPIRED' });
@@ -1098,12 +1102,16 @@ router.post('/reset-password', async (req, res) => {
       .maybeSingle();
     if (updateErr) return res.status(500).json({ error: 'Failed to reset password' });
     if (!updated) {
-      const { data: current } = await supabase.from('users').select('passwordReset').eq('_id', user._id).maybeSingle();
+      const { data: current } = await supabase
+        .from('users')
+        .select('"passwordReset.tokenHash","passwordReset.expiresAt","passwordReset.used"')
+        .eq('_id', user._id)
+        .maybeSingle();
       const currentStatus = getResetTokenStatus(
         t,
-        current?.passwordReset?.tokenHash,
-        current?.passwordReset?.expiresAt,
-        current?.passwordReset?.used === true
+        getPr(current, 'tokenHash'),
+        getPr(current, 'expiresAt'),
+        getPr(current, 'used') === true
       );
       if (currentStatus === 'expired') return res.status(410).json({ error: 'This reset link has expired. Please request a new one.', code: 'RESET_EXPIRED' });
       if (currentStatus === 'used') return res.status(410).json({ error: 'This reset link has already been used. Please request a new one.', code: 'RESET_USED' });

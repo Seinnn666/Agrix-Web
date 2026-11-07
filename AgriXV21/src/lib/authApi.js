@@ -495,7 +495,7 @@ export async function forgotPassword(payload) {
   }
   const supabase = getSupabaseBrowser();
   const email = String(payload?.email || '').trim();
-  const redirectTo = typeof window !== 'undefined' ? `${window.location.origin}/reset-password` : undefined;
+  const redirectTo = typeof window !== 'undefined' ? `${window.location.origin}/` : undefined;
   const { error } = await supabase.auth.resetPasswordForEmail(email, redirectTo ? { redirectTo } : undefined);
   if (error) throw new Error(error.message || 'Failed to send reset link');
   return { ok: true };
@@ -503,6 +503,12 @@ export async function forgotPassword(payload) {
 
 export async function resetPassword(payload) {
   if (!isWeb()) {
+    return requestJson('/auth/reset-password', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+  if (String(payload?.token || '').trim()) {
     return requestJson('/auth/reset-password', {
       method: 'POST',
       body: JSON.stringify(payload),
@@ -520,6 +526,13 @@ export async function resetPassword(payload) {
   const user = data?.user ? mapSupabaseUserToPublicUser(data.user) : loadAuth().user;
   saveAuth(accessToken, user);
   return { token: accessToken, user };
+}
+
+export async function validateResetToken(token) {
+  return requestJson('/auth/validate-reset-token', {
+    method: 'POST',
+    body: JSON.stringify({ token }),
+  });
 }
 
 export async function verifyRegistration(payload) {

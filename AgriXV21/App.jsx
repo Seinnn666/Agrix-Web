@@ -293,8 +293,16 @@ export default function App() {
                 if (typeof window === 'undefined') return;
                 const url = new URL(window.location.href);
                 const resetToken = String(url.searchParams.get('resetToken') || '').trim();
-                if (!resetToken) return;
-                navigationRef.resetRoot({ index: 0, routes: [{ name: 'ResetPassword', params: { resetToken } }] });
+                if (resetToken) {
+                  navigationRef.resetRoot({ index: 0, routes: [{ name: 'ResetPassword', params: { resetToken } }] });
+                  return;
+                }
+                const hashParams = new URLSearchParams(String(url.hash || '').replace(/^#/, ''));
+                const queryError = String(url.searchParams.get('error') || hashParams.get('error') || '').trim();
+                if (queryError) {
+                  navigationRef.resetRoot({ index: 0, routes: [{ name: 'ResetPassword', params: { linkError: true } }] });
+                  return;
+                }
               } catch (_err) {
               }
               try {

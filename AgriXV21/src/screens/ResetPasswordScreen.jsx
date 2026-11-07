@@ -1,12 +1,12 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AgriXLogo from '../components/AgriXLogo';
 import ScreenTransition from '../components/ScreenTransition';
 import AppFooter from '../components/AppFooter';
 import HoverPressable from '../components/HoverPressable';
-import { resetPassword, saveAuth } from '../lib/authApi';
-import { validatePassword } from '../lib/validation';
+import { resetPassword, saveAuth, validateResetToken } from '../lib/authApi';
+import { getPasswordStrength, validatePassword } from '../lib/validation';
 import { theme } from '../ui/theme';
 
 function readResetTokenFromUrl() {
@@ -27,14 +27,42 @@ export default function ResetPasswordScreen({ navigation, route }) {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [error, setError] = useState('');
+  const [linkError, setLinkError] = useState('');
   const [fieldErrors, setFieldErrors] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const passwordChecks = useMemo(() => getPasswordStrength(password), [password]);
+  const passwordStrength = useMemo(() => {
+    const score = passwordChecks.score;
+    const label = score <= 1 ? 'Weak' : score === 2 ? 'Fair' : score === 3 ? 'Good' : 'Strong';
+    const color = score <= 1 ? theme.colors.danger : score === 4 ? '#22C55E' : '#F59E0B';
+    return { label, color, progress: score / 4 };
+  }, [passwordChecks.score]);
+
+  useEffect(() => {
+    let active = true;
+    if (route?.params?.linkError) {
+      setLinkError('This reset link is invalid or expired. Please request a new one.');
+      return () => { active = false; };
+    }
+    if (!token) return () => { active = false; };
+    validateResetToken(token).then(() => {
+      if (active) setLinkError('');
+    }).catch(() => {
+      if (active) setLinkError('This reset link is invalid or expired. Please request a new one.');
+    });
+    return () => { active = false; };
+  }, [token, route?.params?.linkError]);
 
   const handleSubmit = async () => {
     try {
       setError('');
       setFieldErrors({});
       setIsSubmitting(true);
+
+      if (linkError) {
+        setError(linkError);
+        return;
+      }
 
       if (Platform.OS !== 'web' && !token) {
         setError('Reset link is missing or invalid.');
@@ -121,6 +149,18 @@ export default function ResetPasswordScreen({ navigation, route }) {
                   </TouchableOpacity>
                 </View>
                 <Text style={styles.helperText}>Minimum 8 characters, include letters, numbers, and 1+ special character.</Text>
+                <View style={styles.strengthTrack}>
+                  <View style={[styles.strengthFill, { width: `${passwordStrength.progress * 100}%`, backgroundColor: passwordStrength.color }]} />
+                </View>
+                <Text style={[styles.strengthText, { color: passwordStrength.color }]}>Strength: {passwordStrength.label}</Text>
+                <View style={styles.checklist}>
+                  {passwordChecks.checks.map((check) => (
+                    <View key={check.key} style={styles.checkRow}>
+                      <View style={[styles.checkDot, check.ok && styles.checkDotOk]} />
+                      <Text style={[styles.checkText, check.ok && styles.checkTextOk]}>{check.label}</Text>
+                    </View>
+                  ))}
+                </View>
                 {!!fieldErrors.password && <Text style={styles.fieldError}>{fieldErrors.password}</Text>}
               </View>
 
@@ -146,7 +186,7 @@ export default function ResetPasswordScreen({ navigation, route }) {
               <HoverPressable
                 style={[styles.primaryButton, isSubmitting && styles.buttonDisabled]}
                 onPress={handleSubmit}
-                disabled={isSubmitting}
+                disabled={isSubmitting || Boolean(linkError)}
                 accessibilityRole="button"
                 accessibilityLabel="Reset password"
               >
@@ -154,6 +194,11 @@ export default function ResetPasswordScreen({ navigation, route }) {
               </HoverPressable>
 
               {!!error && <Text style={styles.errorText}>{error}</Text>}
+              {!!linkError && (
+                <TouchableOpacity onPress={() => navigation.navigate('ForgotPassword')}>
+                  <Text style={styles.linkText}>Request a new reset link</Text>
+                </TouchableOpacity>
+              )}
 
               <View style={styles.footerLinks}>
                 <Text style={styles.footerText}>Back to </Text>
@@ -253,6 +298,21 @@ const styles = StyleSheet.create({
     color: theme.colors.textMuted,
     fontSize: 12,
   },
+  strengthTrack: {
+    height: 6,
+    backgroundColor: '#E5E7EB',
+    borderRadius: 999,
+    marginTop: 10,
+    overflow: 'hidden',
+  },
+  strengthFill: { height: '100%', borderRadius: 999 },
+  strengthText: { marginTop: 5, fontSize: 12, fontWeight: '800' },
+  checklist: { marginTop: 6 },
+  checkRow: { flexDirection: 'row', alignItems: 'center', marginTop: 3 },
+  checkDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: '#9CA3AF', marginRight: 7 },
+  checkDotOk: { backgroundColor: '#22C55E' },
+  checkText: { color: '#6B7280', fontSize: 12 },
+  checkTextOk: { color: '#15803D' },
   fieldError: {
     marginTop: 6,
     color: theme.colors.danger,

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { hashCode, isResetTokenValid } from '../src/lib/otp.js';
-import { isValidName, validateDateOfBirth, validateName, validateRegistrationPhone } from '../src/lib/validation.js';
+import { isValidName, validateDateOfBirth, validateName, validatePasswordConfirmation, validateRegistrationPhone } from '../src/lib/validation.js';
 
 const token = 'test-reset-token';
 const now = Date.UTC(2026, 10, 7);
@@ -28,4 +28,10 @@ test('server validators enforce shared Cycle 1 field rules', () => {
   assert.equal(validateRegistrationPhone('09762202225'), null);
   assert.equal(validateRegistrationPhone('+63976220225'), 'Phone number must be 11 digits (you entered 10)');
   assert.equal(validateRegistrationPhone('+639762202225'), null);
+});
+
+test('server rejects a mismatched reset confirmation when supplied', () => {
+  assert.equal(validatePasswordConfirmation('StrongPass1!', 'StrongPass2!'), 'Passwords do not match');
+  assert.equal(validatePasswordConfirmation('StrongPass1!', 'StrongPass1!'), null);
+  assert.equal(validatePasswordConfirmation('StrongPass1!', undefined), null);
 });

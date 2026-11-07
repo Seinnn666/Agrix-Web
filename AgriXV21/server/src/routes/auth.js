@@ -18,6 +18,7 @@ import {
   validatePassword,
   validateDateOfBirth,
   validateName,
+  validatePasswordConfirmation,
   validateRegistrationPhone,
 } from '../lib/validation.js';
 
@@ -1037,9 +1038,8 @@ router.post('/reset-password', async (req, res) => {
     const { token, password, confirmPassword } = req.body || {};
     const t = String(token || '').trim();
     if (!t) return res.status(400).json({ error: 'Reset token is required', code: 'RESET_TOKEN_REQUIRED' });
-    if (confirmPassword !== undefined && String(password || '') !== String(confirmPassword || '')) {
-      return res.status(400).json({ error: 'Validation failed', fieldErrors: { confirmPassword: 'Passwords do not match' } });
-    }
+    const confirmError = validatePasswordConfirmation(password, confirmPassword);
+    if (confirmError) return res.status(400).json({ error: 'Validation failed', fieldErrors: { confirmPassword: confirmError } });
 
     const pwdError = validatePassword(password);
     if (pwdError) {

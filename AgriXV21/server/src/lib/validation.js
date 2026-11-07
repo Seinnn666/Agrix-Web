@@ -136,3 +136,8 @@ export function validatePassword(value) {
   return null;
 }
 
+export function validatePasswordConfirmation(password, confirmPassword) {
+  if (confirmPassword === undefined) return null;
+  return String(password || '') === String(confirmPassword || '') ? null : 'Passwords do not match';
+}
+

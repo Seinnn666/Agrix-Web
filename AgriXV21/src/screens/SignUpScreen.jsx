@@ -216,6 +216,9 @@ export default function SignUpScreen({ navigation }) {
           onCopy: (e) => e.preventDefault(),
           onCut: (e) => e.preventDefault(),
           onContextMenu: (e) => e.preventDefault(),
+          onDrop: (e) => e.preventDefault(),
+          onDragStart: (e) => e.preventDefault(),
+          onDragOver: (e) => e.preventDefault(),
           onKeyDown: (e) => {
             const key = String(e?.key || e?.nativeEvent?.key || '').toLowerCase();
             const ctrl = Boolean(e?.ctrlKey || e?.nativeEvent?.ctrlKey);
@@ -569,12 +572,11 @@ export default function SignUpScreen({ navigation }) {
                   fieldErrors.password && styles.inputError,
                 ]}
                 value={password}
-                onChangeText={(text) => { clearFieldError('password'); setPassword((prev) => (shouldBlockMultiCharInsert(prev, text) ? prev : text)); }}
+                onChangeText={(text) => { clearFieldError('password'); setPassword(text); }}
                 onBlur={() => validateFieldOnBlur('password')}
                 secureTextEntry={!showPassword}
                 autoComplete="new-password"
                 textContentType="newPassword"
-                {...blockClipboardProps}
               />
               <TouchableOpacity
                 style={styles.passwordToggle}
@@ -618,7 +620,7 @@ export default function SignUpScreen({ navigation }) {
                 onChangeText={(text) => { clearFieldError('confirmPassword'); setConfirmPassword((prev) => (shouldBlockMultiCharInsert(prev, text) ? prev : text)); }}
                 onBlur={() => validateFieldOnBlur('confirmPassword')}
                 secureTextEntry={!showConfirmPassword}
-                autoComplete="new-password"
+                autoComplete="off"
                 textContentType="newPassword"
                 {...blockClipboardProps}
               />

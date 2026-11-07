@@ -7,6 +7,7 @@ import { generateOtpCode, generateSecureToken, hashCode, getResetTokenStatus } f
 import { sendPasswordResetEmail, sendRegistrationOtpEmail } from '../lib/emailjs.js';
 import { createWelcomeNotification } from './notifications.js';
 import { parseBool, userRowToPublic } from '../lib/supabaseMaps.js';
+import { emailNotVerifiedBody, requiresEmailVerification } from '../lib/authPolicy.js';
 import {
   isValidEmail,
   isValidName,
@@ -327,8 +328,7 @@ router.post('/register', async (req, res) => {
     catch (notificationErr) { console.error('Could not create signup welcome notification:', notificationErr?.message || notificationErr); }
 
     if (skipEmail) {
-      const token = signToken(user);
-      return res.status(201).json({ token, user: userRowToPublic(user) });
+      return res.status(201).json({ requiresVerification: false, userId: String(user._id), email: user.email });
     }
 
     let otpSent = true;
@@ -498,8 +498,7 @@ router.post('/start-verification', async (req, res) => {
     }
 
     if (skipEmail) {
-      const token = signToken(user);
-      return res.json({ token, user: userRowToPublic(user) });
+      return res.json({ requiresVerification: false, userId: String(user._id), email: user.email, otpSent: false });
     }
 
     let otpSent = true;
@@ -688,13 +687,33 @@ router.post('/login', async (req, res) => {
     }
     if (!ok) return res.status(401).json({ error: 'Invalid credentials' });
 
-    if (!parseBool(user.isAdmin) && !parseBool(user.emailVerified)) {
-      return res.status(403).json({
-        error: 'Email not verified',
-        code: 'EMAIL_NOT_VERIFIED',
-        userId: String(user._id),
-        email: user.email,
-      });
+    if (requiresEmailVerification(user)) {
+      const now = Date.now();
+      const windowStart = getEv(user, 'resendWindowStart')
+        ? new Date(getEv(user, 'resendWindowStart')).getTime()
+        : 0;
+      const inWindow = windowStart && now - windowStart < OTP_RESEND_WINDOW_MS;
+      const currentCount = Number(getEv(user, 'resendCount') || 0);
+      if (inWindow && currentCount >= OTP_MAX_RESENDS_PER_WINDOW) {
+        const retryAfterSeconds = Math.ceil((windowStart + OTP_RESEND_WINDOW_MS - now) / 1000);
+        return res.set('Retry-After', String(retryAfterSeconds)).status(429).json({
+          error: 'Too many resend requests. Try again later.',
+          code: 'OTP_RESEND_LIMIT',
+          retryAfterSeconds,
+        });
+      }
+      const otpCode = generateOtpCode();
+      const nextCount = inWindow ? currentCount + 1 : 1;
+      await supabase.from('users').update({
+        'emailVerification.codeHash': hashCode(otpCode),
+        'emailVerification.expiresAt': new Date(now + OTP_TTL_MS).toISOString(),
+        'emailVerification.lastSentAt': new Date(now).toISOString(),
+        'emailVerification.resendWindowStart': inWindow ? new Date(windowStart).toISOString() : new Date(now).toISOString(),
+        'emailVerification.resendCount': nextCount,
+        'emailVerification.attempts': 0,
+      }).eq('_id', user._id);
+      await sendRegistrationOtpEmail({ toEmail: user.email, otpCode });
+      return res.status(403).json(emailNotVerifiedBody());
     }
 
     const token = signToken(user);
@@ -710,11 +729,13 @@ router.post('/verify-otp', async (req, res) => {
     const id = String(userId || '').trim();
     const em = normalizeEmail(email);
     const otp = String(code || '').trim();
-    if (!id) return res.status(400).json({ error: 'User ID is required', code: 'USER_ID_REQUIRED' });
+    if (!id && !isValidEmail(em)) return res.status(400).json({ error: 'Email is required', code: 'EMAIL_REQUIRED' });
     if (!/^\d{6}$/.test(otp)) return res.status(400).json({ error: 'Invalid code', code: 'OTP_INVALID' });
 
     const supabase = getSupabaseAdmin();
-    let { data: user, error } = await supabase.from('users').select('*').eq('_id', id).maybeSingle();
+    let { data: user, error } = id
+      ? await supabase.from('users').select('*').eq('_id', id).maybeSingle()
+      : await supabase.from('users').select('*').ilike('email', em).maybeSingle();
     if (error) return res.status(500).json({ error: 'Verification failed' });
     if (!user && isValidEmail(em)) {
       const retry = await supabase.from('users').select('*').ilike('email', em).maybeSingle();
@@ -842,8 +863,7 @@ router.post('/verify-registration', async (req, res) => {
     if (!user) return res.status(404).json({ error: 'User not found' });
 
     if (parseBool(user.isAdmin) || parseBool(user.emailVerified)) {
-      const token = signToken(user);
-      return res.json({ token, user: userRowToPublic(user) });
+      return res.json({ ok: true });
     }
 
     const now = Date.now();
@@ -868,7 +888,7 @@ router.post('/verify-registration', async (req, res) => {
       });
     }
 
-    const { data: updated, error: updateErr } = await supabase
+    const { error: updateErr } = await supabase
       .from('users')
       .update({
         emailVerified: true,
@@ -880,12 +900,11 @@ router.post('/verify-registration', async (req, res) => {
         'emailVerification.resendCount': 0,
       })
       .eq('_id', id)
-      .select('*')
+      .select('_id')
       .single();
-    if (updateErr || !updated) return res.status(500).json({ error: 'Verification failed' });
+    if (updateErr) return res.status(500).json({ error: 'Verification failed' });
 
-    const token = signToken(updated);
-    return res.json({ token, user: userRowToPublic(updated) });
+    return res.json({ ok: true });
   } catch (_err) {
     return res.status(500).json({ error: 'Verification failed' });
   }

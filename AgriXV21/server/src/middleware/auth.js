@@ -1,5 +1,6 @@
 import jwt from 'jsonwebtoken';
 import { getSupabaseAdmin } from '../lib/db.js';
+import { emailNotVerifiedBody, requiresEmailVerification } from '../lib/authPolicy.js';
 
 const AUTH_LOG_WINDOW_MS = 30_000;
 const lastAuthLogAt = new Map();
@@ -22,7 +23,7 @@ function logBearerHeaderReceived() {
   console.info('[auth] Bearer authorization header received (token redacted)');
 }
 
-export async function requireAuth(req, res, next) {
+export async function requireAuth(req, res, next, getAdmin = getSupabaseAdmin) {
   try {
     const header = String(req.headers.authorization || '').trim();
     const match = header.match(/^Bearer\s+([^\s]+)$/i);
@@ -38,6 +39,15 @@ export async function requireAuth(req, res, next) {
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
         const userId = decoded?.sub ? String(decoded.sub) : '';
         if (userId) {
+          const supabase = getAdmin();
+          const { data: row, error } = await supabase.from('users')
+            .select('_id,emailVerified,isAdmin')
+            .eq('_id', userId)
+            .maybeSingle();
+          if (error) return res.status(500).json({ error: 'Unable to verify account status' });
+          if (row && requiresEmailVerification(row)) {
+            return res.status(403).json(emailNotVerifiedBody());
+          }
           req.user = decoded;
           req.userId = userId;
           req.authType = 'legacy';
@@ -47,7 +57,7 @@ export async function requireAuth(req, res, next) {
       }
     }
 
-    const verifier = getSupabaseAdmin();
+    const verifier = getAdmin();
     const { data, error } = await verifier.auth.getUser(token);
     const authUser = data?.user || null;
     if (error || !authUser?.id) {
@@ -59,11 +69,18 @@ export async function requireAuth(req, res, next) {
     req.authType = 'supabase';
     req.authUserId = String(authUser.id);
 
-    const supabase = getSupabaseAdmin();
+    const supabase = getAdmin();
     const email = String(authUser.email || '').trim().toLowerCase();
     if (email) {
-      const { data: row } = await supabase.from('users').select('_id').ilike('email', email).maybeSingle();
+      const { data: row, error: rowError } = await supabase.from('users')
+        .select('_id,emailVerified,isAdmin')
+        .ilike('email', email)
+        .maybeSingle();
+      if (rowError) return res.status(500).json({ error: 'Unable to verify account status' });
       if (row?._id) {
+        if (requiresEmailVerification(row)) {
+          return res.status(403).json(emailNotVerifiedBody());
+        }
         req.userId = String(row._id);
         return next();
       }

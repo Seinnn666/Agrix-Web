@@ -32,6 +32,7 @@ export default function ResetPasswordScreen({ navigation, route }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isCheckingToken, setIsCheckingToken] = useState(false);
   const [tokenStatus, setTokenStatus] = useState(token ? 'checking' : 'invalid');
+  const [canRetryValidation, setCanRetryValidation] = useState(false);
   const passwordChecks = useMemo(() => getPasswordStrength(password), [password]);
   const passwordStrength = useMemo(() => {
     const score = passwordChecks.score;
@@ -52,20 +53,44 @@ export default function ResetPasswordScreen({ navigation, route }) {
     }
     setIsCheckingToken(true);
     setTokenStatus('checking');
+    setCanRetryValidation(false);
     setError('');
     validateResetToken(token).then(() => {
-      if (active) setTokenStatus('valid');
+      if (active) {
+        setTokenStatus('valid');
+        setCanRetryValidation(false);
+      }
     }).catch((err) => {
       if (!active) return;
       if (err?.code === 'RESET_EXPIRED') setTokenStatus('expired');
       else if (err?.code === 'RESET_USED') setTokenStatus('used');
       else if (err?.code === 'RESET_INVALID') setTokenStatus('invalid');
       else setTokenStatus('error');
+      setCanRetryValidation(err?.code === 'API_NETWORK_ERROR' || Number(err?.status) >= 500);
     }).finally(() => {
       if (active) setIsCheckingToken(false);
     });
     return () => { active = false; };
   }, [token, route?.params?.linkError]);
+
+  const retryValidation = async () => {
+    if (!token || isCheckingToken) return;
+    setIsCheckingToken(true);
+    setTokenStatus('checking');
+    setCanRetryValidation(false);
+    try {
+      await validateResetToken(token);
+      setTokenStatus('valid');
+    } catch (err) {
+      if (err?.code === 'RESET_EXPIRED') setTokenStatus('expired');
+      else if (err?.code === 'RESET_USED') setTokenStatus('used');
+      else if (err?.code === 'RESET_INVALID') setTokenStatus('invalid');
+      else setTokenStatus('error');
+      setCanRetryValidation(err?.code === 'API_NETWORK_ERROR' || Number(err?.status) >= 500);
+    } finally {
+      setIsCheckingToken(false);
+    }
+  };
 
   const handleSubmit = async () => {
     try {
@@ -158,6 +183,11 @@ export default function ResetPasswordScreen({ navigation, route }) {
                   <TouchableOpacity onPress={() => navigation.navigate('ForgotPassword')}>
                     <Text style={styles.linkText}>Request a new reset link</Text>
                   </TouchableOpacity>
+                  {canRetryValidation && (
+                    <TouchableOpacity onPress={retryValidation} disabled={isCheckingToken}>
+                      <Text style={styles.linkText}>{isCheckingToken ? 'Trying again…' : 'Try again'}</Text>
+                    </TouchableOpacity>
+                  )}
                 </View>
               )}
 

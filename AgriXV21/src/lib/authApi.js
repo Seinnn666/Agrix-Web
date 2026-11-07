@@ -327,6 +327,7 @@ async function requestJson(path, options) {
       }
       const message = res.status === 404 ? 'API endpoint not found' : 'Request failed';
       lastErr = new Error(message);
+      lastErr.status = res.status;
       throw lastErr;
     }
 
@@ -334,6 +335,7 @@ async function requestJson(path, options) {
       ? 'The API rejected the request (401).'
       : (data?.error || 'Request failed');
     const err = new Error(message);
+    err.status = res.status;
     if (res.status === 401) {
       err.code = 'API_AUTH_REJECTED';
       if (data?.code) err.serverCode = data.code;
@@ -348,7 +350,9 @@ async function requestJson(path, options) {
   }
 
   if (lastNetworkErr) {
-    throw new Error(`Cannot reach API. Tried: ${API_BASE_URLS.join(', ')}`);
+    const err = new Error(`Cannot reach API. Tried: ${API_BASE_URLS.join(', ')}`);
+    err.code = 'API_NETWORK_ERROR';
+    throw err;
   }
   throw lastErr || new Error(`Cannot reach API. Tried: ${API_BASE_URLS.join(', ')}`);
 }
@@ -521,10 +525,16 @@ export async function resetPassword(payload) {
 }
 
 export async function validateResetToken(token) {
-  return requestJson('/auth/validate-reset-token', {
+  const result = await requestJson('/auth/validate-reset-token', {
     method: 'POST',
     body: JSON.stringify({ token }),
   });
+  if (result?.status !== 'valid') {
+    const err = new Error('The reset-link validation response was not recognized.');
+    err.code = 'API_BAD_RESPONSE';
+    throw err;
+  }
+  return result;
 }
 
 export async function verifyRegistration(payload) {

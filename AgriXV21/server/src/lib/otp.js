@@ -10,12 +10,19 @@ export function hashCode(code) {
 }
 
 export function isResetTokenValid(token, storedHash, expiresAt, now = Date.now()) {
+  return getResetTokenStatus(token, storedHash, expiresAt, false, now) === 'valid';
+}
+
+export function getResetTokenStatus(token, storedHash, expiresAt, used = false, now = Date.now()) {
   const expected = String(storedHash || '');
-  const expiry = new Date(expiresAt || 0).getTime();
-  if (!token || !/^[a-f0-9]{64}$/i.test(expected) || !Number.isFinite(expiry) || expiry <= now) return false;
+  if (!token || !/^[a-f0-9]{64}$/i.test(expected)) return 'invalid';
   const actual = Buffer.from(hashCode(token), 'hex');
   const stored = Buffer.from(expected, 'hex');
-  return actual.length === stored.length && crypto.timingSafeEqual(actual, stored);
+  if (actual.length !== stored.length || !crypto.timingSafeEqual(actual, stored)) return 'invalid';
+  if (used) return 'used';
+  const expiry = new Date(expiresAt || 0).getTime();
+  if (!Number.isFinite(expiry) || expiry <= now) return 'expired';
+  return 'valid';
 }
 
 export function generateSecureToken(bytes = 32) {

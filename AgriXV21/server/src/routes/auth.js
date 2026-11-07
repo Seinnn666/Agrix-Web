@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { requireAuth } from '../middleware/auth.js';
 import { getSupabaseAdmin, newObjectId } from '../lib/db.js';
-import { generateOtpCode, generateSecureToken, hashCode, isResetTokenValid } from '../lib/otp.js';
+import { generateOtpCode, generateSecureToken, hashCode, getResetTokenStatus } from '../lib/otp.js';
 import { sendPasswordResetEmail, sendRegistrationOtpEmail } from '../lib/emailjs.js';
 import { createWelcomeNotification } from './notifications.js';
 import { parseBool, userRowToPublic } from '../lib/supabaseMaps.js';
@@ -50,7 +50,14 @@ const OTP_MAX_RESENDS_PER_WINDOW = 3;
 const OTP_MAX_ATTEMPTS = 5;
 const OTP_LOCK_MS = 15 * 60 * 1000;
 
-const RESET_TTL_MS = 15 * 60 * 1000;
+const DEFAULT_RESET_TTL_MINUTES = 30;
+function getResetTtlMs() {
+  const configuredMinutes = Number(process.env.PASSWORD_RESET_TTL_MINUTES);
+  const ttlMinutes = Number.isFinite(configuredMinutes) && configuredMinutes > 0
+    ? configuredMinutes
+    : DEFAULT_RESET_TTL_MINUTES;
+  return ttlMinutes * 60 * 1000;
+}
 const RESET_RESEND_WINDOW_MS = 10 * 60 * 1000;
 const RESET_MAX_RESENDS_PER_WINDOW = 3;
 
@@ -971,7 +978,8 @@ router.post('/forgot-password', async (req, res) => {
       .from('users')
       .update({
         'passwordReset.tokenHash': hashCode(token),
-        'passwordReset.expiresAt': new Date(now + RESET_TTL_MS).toISOString(),
+        'passwordReset.expiresAt': new Date(now + getResetTtlMs()).toISOString(),
+        'passwordReset.used': false,
         'passwordReset.lastSentAt': new Date(now).toISOString(),
         'passwordReset.resendWindowStart': inWindow ? new Date(windowStart).toISOString() : new Date(now).toISOString(),
         'passwordReset.resendCount': inWindow ? currentCount + 1 : 1,
@@ -987,6 +995,7 @@ router.post('/forgot-password', async (req, res) => {
         .update({
           'passwordReset.tokenHash': '',
           'passwordReset.expiresAt': null,
+          'passwordReset.used': false,
           'passwordReset.lastSentAt': null,
           'passwordReset.resendWindowStart': null,
           'passwordReset.resendCount': 0,
@@ -1012,22 +1021,24 @@ router.post('/forgot-password', async (req, res) => {
 router.post('/validate-reset-token', async (req, res) => {
   try {
     const token = String(req.body?.token || '').trim();
-    if (!token) return res.status(400).json({ error: 'This reset link is invalid or expired. Please request a new one.', code: 'RESET_INVALID' });
+    if (!token) return res.status(400).json({ error: 'This reset link is invalid. Please request a new one.', code: 'RESET_INVALID', status: 'invalid' });
     const supabase = getSupabaseAdmin();
     const tokenHash = hashCode(token);
     const { data: user, error } = await supabase
       .from('users')
       .select('passwordReset')
       .filter('"passwordReset.tokenHash"', 'eq', tokenHash)
-      .filter('"passwordReset.expiresAt"', 'gt', new Date().toISOString())
       .maybeSingle();
     if (error) return res.status(500).json({ error: 'Could not validate reset link' });
-    const storedHash = user?.passwordReset?.tokenHash || '';
-    const expiresAt = user?.passwordReset?.expiresAt;
-    if (!isResetTokenValid(token, storedHash, expiresAt)) {
-      return res.status(400).json({ error: 'This reset link is invalid or expired. Please request a new one.', code: 'RESET_INVALID' });
+    const reset = user?.passwordReset || {};
+    const status = getResetTokenStatus(token, reset.tokenHash, reset.expiresAt, reset.used === true);
+    if (status === 'expired') return res.status(410).json({ error: 'This reset link has expired. Please request a new one.', code: 'RESET_EXPIRED', status });
+    if (status === 'used') return res.status(410).json({ error: 'This reset link has already been used. Please request a new one.', code: 'RESET_USED', status });
+    if (status === 'invalid') return res.status(400).json({ error: 'This reset link is invalid. Please request a new one.', code: 'RESET_INVALID', status });
+    if (status !== 'valid') {
+      return res.status(400).json({ error: 'This reset link is invalid. Please request a new one.', code: 'RESET_INVALID', status: 'invalid' });
     }
-    return res.json({ valid: true });
+    return res.json({ status: 'valid' });
   } catch (_err) {
     return res.status(500).json({ error: 'Could not validate reset link' });
   }
@@ -1053,13 +1064,19 @@ router.post('/reset-password', async (req, res) => {
       .from('users')
       .select('*')
       .filter('"passwordReset.tokenHash"', 'eq', tokenHash)
-      .filter('"passwordReset.expiresAt"', 'gt', new Date(now).toISOString())
       .maybeSingle();
     if (error) return res.status(500).json({ error: 'Failed to reset password' });
 
-    if (!user) {
-      return res.status(400).json({ error: 'Invalid or expired reset link', code: 'RESET_INVALID' });
-    }
+    const resetStatus = getResetTokenStatus(
+      t,
+      user?.passwordReset?.tokenHash,
+      user?.passwordReset?.expiresAt,
+      user?.passwordReset?.used === true,
+      now
+    );
+    if (resetStatus === 'expired') return res.status(410).json({ error: 'This reset link has expired. Please request a new one.', code: 'RESET_EXPIRED' });
+    if (resetStatus === 'used') return res.status(410).json({ error: 'This reset link has already been used. Please request a new one.', code: 'RESET_USED' });
+    if (resetStatus !== 'valid' || !user) return res.status(400).json({ error: 'This reset link is invalid. Please request a new one.', code: 'RESET_INVALID' });
 
     const passwordHash = await bcrypt.hash(String(password), 12);
     const { data: updated, error: updateErr } = await supabase
@@ -1067,8 +1084,7 @@ router.post('/reset-password', async (req, res) => {
       .update({
         passwordHash,
         updatedAt: new Date().toISOString(),
-        'passwordReset.tokenHash': '',
-        'passwordReset.expiresAt': null,
+        'passwordReset.used': true,
         'passwordReset.lastSentAt': null,
         'passwordReset.resendWindowStart': null,
         'passwordReset.resendCount': 0,
@@ -1077,10 +1093,22 @@ router.post('/reset-password', async (req, res) => {
       .eq('_id', user._id)
       .filter('"passwordReset.tokenHash"', 'eq', tokenHash)
       .filter('"passwordReset.expiresAt"', 'gt', new Date(now).toISOString())
+      .filter('"passwordReset.used"', 'eq', false)
       .select('*')
       .maybeSingle();
     if (updateErr) return res.status(500).json({ error: 'Failed to reset password' });
-    if (!updated) return res.status(400).json({ error: 'Invalid or expired reset link', code: 'RESET_INVALID' });
+    if (!updated) {
+      const { data: current } = await supabase.from('users').select('passwordReset').eq('_id', user._id).maybeSingle();
+      const currentStatus = getResetTokenStatus(
+        t,
+        current?.passwordReset?.tokenHash,
+        current?.passwordReset?.expiresAt,
+        current?.passwordReset?.used === true
+      );
+      if (currentStatus === 'expired') return res.status(410).json({ error: 'This reset link has expired. Please request a new one.', code: 'RESET_EXPIRED' });
+      if (currentStatus === 'used') return res.status(410).json({ error: 'This reset link has already been used. Please request a new one.', code: 'RESET_USED' });
+      return res.status(400).json({ error: 'This reset link is invalid. Please request a new one.', code: 'RESET_INVALID' });
+    }
 
     const authToken = signToken(updated);
     return res.json({ token: authToken, user: userRowToPublic(updated) });

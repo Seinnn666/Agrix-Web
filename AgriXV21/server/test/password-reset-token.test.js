@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { hashCode, isResetTokenValid } from '../src/lib/otp.js';
+import { getResetTokenStatus, hashCode, isResetTokenValid } from '../src/lib/otp.js';
 import { isValidName, validateDateOfBirth, validateName, validatePasswordConfirmation, validateRegistrationPhone } from '../src/lib/validation.js';
 
 const token = 'test-reset-token';
@@ -14,6 +14,16 @@ test('rejects expired, already-used, and mismatched tokens', () => {
   assert.equal(isResetTokenValid(token, hashCode(token), new Date(now).toISOString(), now), false);
   assert.equal(isResetTokenValid(token, '', new Date(now + 60_000).toISOString(), now), false);
   assert.equal(isResetTokenValid('other-token', hashCode(token), new Date(now + 60_000).toISOString(), now), false);
+});
+
+test('classifies valid, expired, used, invalid, and replaced reset links distinctly', () => {
+  const expiry = new Date(now + 60_000).toISOString();
+  const expired = new Date(now - 60_000).toISOString();
+  assert.equal(getResetTokenStatus(token, hashCode(token), expiry, false, now), 'valid');
+  assert.equal(getResetTokenStatus(token, hashCode(token), expired, false, now), 'expired');
+  assert.equal(getResetTokenStatus(token, hashCode(token), expiry, true, now), 'used');
+  assert.equal(getResetTokenStatus('invalid-token', hashCode(token), expiry, false, now), 'invalid');
+  assert.equal(getResetTokenStatus(token, hashCode('new-reset-link'), expiry, false, now), 'invalid');
 });
 
 test('server validators enforce shared Cycle 1 field rules', () => {

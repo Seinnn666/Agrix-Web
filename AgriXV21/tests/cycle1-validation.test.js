@@ -4,6 +4,8 @@ import { validateDateOfBirth, validateName, validatePhoneE164, validateSignUpFor
 
 test('names accept 35 characters and reject 36 with the field-specific message', () => {
   assert.equal(validateName('x'.repeat(35), 'First name').ok, true);
+  assert.equal(validateName('José', 'First name').ok, true);
+  assert.equal(validateName('Alex1', 'First name').ok, false);
   assert.deepEqual(validateName('x'.repeat(36), 'First name'), {
     ok: false,
     value: 'x'.repeat(36),

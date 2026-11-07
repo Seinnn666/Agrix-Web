@@ -18,6 +18,8 @@ test('rejects expired, already-used, and mismatched tokens', () => {
 
 test('server validators enforce shared Cycle 1 field rules', () => {
   assert.equal(isValidName('x'.repeat(35)), true);
+  assert.equal(isValidName('José'), true);
+  assert.equal(isValidName('Alex1'), false);
   assert.equal(validateName('x'.repeat(36), 'First name'), 'First name must be 35 characters or less');
   assert.equal(validateName('Q', 'Last name'), 'Last name must be at least 2 characters');
   assert.equal(validateDateOfBirth('2026-11-08', new Date(2026, 10, 7)), 'Date of birth cannot be in the future');

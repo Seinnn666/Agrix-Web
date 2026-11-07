@@ -45,6 +45,9 @@ export function validateName(name, label) {
   if (value.length > 35) {
     return { ok: false, value, message: `${label} must be 35 characters or less` };
   }
+  if (/\d/.test(value) || /[\u0000-\u001F\u007F]/.test(value)) {
+    return { ok: false, value, message: `${label} contains unsupported characters` };
+  }
   // Relaxed validation: allow any printable characters, not just English letters
   // Just check it doesn't contain mostly special symbols if needed, but for now length is enough safety
   return { ok: true, value };

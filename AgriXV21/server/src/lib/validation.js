@@ -34,7 +34,7 @@ export function isValidName(value) {
   const v = normalizeSpaces(value);
   if (!v) return false;
   if (v.length < 2 || v.length > 35) return false;
-  return /^[a-zA-Z][a-zA-Z\s'-]*$/.test(v);
+  return !/\d/.test(v) && !/[\u0000-\u001F\u007F]/.test(v);
 }
 
 export function validateName(value, label) {

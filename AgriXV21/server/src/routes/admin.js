@@ -11,6 +11,8 @@ import {
   normalizeEmail,
   normalizePhone,
   normalizeSpaces,
+  validateDateOfBirth,
+  validateName,
 } from '../lib/validation.js';
 import { parseBool, userRowToAdminDto } from '../lib/supabaseMaps.js';
 
@@ -191,6 +193,7 @@ router.patch('/profile', requireAdmin, async (req, res) => {
     }
     const user = req.userRow;
     const updates = {};
+    const fieldErrors = {};
 
     if (Object.prototype.hasOwnProperty.call(req.body || {}, 'firstName')) {
       updates.firstName = normalizeSpaces(req.body.firstName);
@@ -239,6 +242,27 @@ router.patch('/profile', requireAdmin, async (req, res) => {
     if (Object.prototype.hasOwnProperty.call(req.body || {}, 'gender')) {
       updates.gender = req.body.gender;
     }
+    if (Object.prototype.hasOwnProperty.call(updates, 'firstName')) {
+      const nameError = validateName(updates.firstName, 'First name');
+      if (nameError) fieldErrors.firstName = nameError;
+    }
+    if (Object.prototype.hasOwnProperty.call(updates, 'lastName')) {
+      const nameError = validateName(updates.lastName, 'Last name');
+      if (nameError) fieldErrors.lastName = nameError;
+    }
+    if (Object.prototype.hasOwnProperty.call(updates, 'address') && (updates.address.length < 5 || updates.address.length > 160)) {
+      fieldErrors.address = 'Address must be between 5 and 160 characters';
+    }
+    if (Object.prototype.hasOwnProperty.call(updates, 'dateOfBirth')) {
+      const dateValue = String(updates.dateOfBirth || '').split('T')[0];
+      const dateError = validateDateOfBirth(dateValue);
+      if (dateError) fieldErrors.dateOfBirth = dateError;
+      else updates.dateOfBirth = new Date(`${dateValue}T00:00:00.000Z`).toISOString();
+    }
+    if (Object.prototype.hasOwnProperty.call(updates, 'gender') && !['male', 'female', 'rather_not_say'].includes(String(updates.gender || '').trim().toLowerCase())) {
+      fieldErrors.gender = 'Gender is invalid';
+    }
+    if (Object.keys(fieldErrors).length) return res.status(400).json({ error: 'Validation failed', fieldErrors });
     
     // Password update
     if (req.body.password) {
@@ -426,24 +450,15 @@ router.patch('/users/:id', requireAdmin, async (req, res) => {
     }
 
     const fieldErrors = {};
-    if (!isValidName(next.firstName)) fieldErrors.firstName = 'First name is invalid';
-    if (!isValidName(next.lastName)) fieldErrors.lastName = 'Last name is invalid';
+    const firstNameError = validateName(next.firstName, 'First name');
+    const lastNameError = validateName(next.lastName, 'Last name');
+    if (firstNameError) fieldErrors.firstName = firstNameError;
+    if (lastNameError) fieldErrors.lastName = lastNameError;
     if (!isValidActiveEmail(next.email)) fieldErrors.email = 'Please enter a valid, active email address (placeholder emails are not allowed).';
     if (next.phone && !isValidPhone(next.phone)) fieldErrors.phone = 'Phone number is invalid';
     if (next.address.length < 5 || next.address.length > 160) fieldErrors.address = 'Address must be between 5 and 160 characters';
-    const dob = /^\d{4}-\d{2}-\d{2}$/.test(next.dateOfBirth)
-      ? new Date(`${next.dateOfBirth}T00:00:00.000Z`)
-      : null;
-    const validDob = dob && Number.isFinite(dob.getTime()) && dob.toISOString().slice(0, 10) === next.dateOfBirth;
-    if (!validDob) {
-      fieldErrors.dateOfBirth = 'Date of birth is invalid';
-    } else {
-      const cutoff = new Date();
-      cutoff.setFullYear(cutoff.getFullYear() - 18);
-      if (dob > cutoff) fieldErrors.dateOfBirth = next.dateOfBirth > new Date().toISOString().slice(0, 10)
-        ? 'Birthdate cannot be a future date.'
-        : 'You must be at least 18 years old';
-    }
+    const dateError = validateDateOfBirth(next.dateOfBirth);
+    if (dateError) fieldErrors.dateOfBirth = dateError;
     if (!['male', 'female', 'rather_not_say'].includes(String(next.gender || '').trim().toLowerCase())) {
       fieldErrors.gender = 'Gender is invalid';
     }

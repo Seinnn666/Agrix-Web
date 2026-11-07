@@ -12,6 +12,8 @@ import {
   normalizeEmail,
   normalizePhone,
   normalizeSpaces,
+  validateDateOfBirth,
+  validateName,
 } from '../lib/validation.js';
 import { generateOtpCode, hashCode } from '../lib/otp.js';
 import { sendRegistrationOtpEmail } from '../lib/emailjs.js';
@@ -75,8 +77,10 @@ router.put('/me', requireAuth, async (req, res) => {
     const ph = normalizePhone(phone);
 
     const fieldErrors = {};
-    if (!isValidName(first)) fieldErrors.firstName = 'First name is invalid';
-    if (!isValidName(last)) fieldErrors.lastName = 'Last name is invalid';
+    const firstError = validateName(first, 'First name');
+    const lastError = validateName(last, 'Last name');
+    if (firstError) fieldErrors.firstName = firstError;
+    if (lastError) fieldErrors.lastName = lastError;
     // Email/Phone updates handled separately
     // if (!isValidEmail(em)) fieldErrors.email = 'Email address is invalid';
     // if (!ph) fieldErrors.phone = 'Phone number is required';
@@ -100,18 +104,9 @@ router.put('/me', requireAuth, async (req, res) => {
 
     if (dateOfBirth !== undefined) {
       const dobRaw = String(dateOfBirth || '').trim();
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(dobRaw)) {
-        fieldErrors.dateOfBirth = 'Date of birth is invalid';
-      } else {
-        const parsed = new Date(`${dobRaw}T00:00:00.000Z`);
-        if (!Number.isFinite(parsed.getTime())) {
-          fieldErrors.dateOfBirth = 'Date of birth is invalid';
-        } else if (parsed.getTime() > Date.now()) {
-          fieldErrors.dateOfBirth = 'Date of birth is invalid';
-        } else {
-          updates.dateOfBirth = parsed;
-        }
-      }
+      const dateError = validateDateOfBirth(dobRaw);
+      if (dateError) fieldErrors.dateOfBirth = dateError;
+      else updates.dateOfBirth = new Date(`${dobRaw}T00:00:00.000Z`);
     }
 
     if (Object.keys(fieldErrors).length > 0) {

@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { requireAuth } from '../middleware/auth.js';
 import { getSupabaseAdmin, newObjectId } from '../lib/db.js';
-import { generateOtpCode, generateSecureToken, hashCode } from '../lib/otp.js';
+import { generateOtpCode, generateSecureToken, hashCode, isResetTokenValid } from '../lib/otp.js';
 import { sendPasswordResetEmail, sendRegistrationOtpEmail } from '../lib/emailjs.js';
 import { createWelcomeNotification } from './notifications.js';
 import { parseBool, userRowToPublic } from '../lib/supabaseMaps.js';
@@ -16,6 +16,9 @@ import {
   normalizePhone,
   normalizeSpaces,
   validatePassword,
+  validateDateOfBirth,
+  validateName,
+  validateRegistrationPhone,
 } from '../lib/validation.js';
 
 const router = express.Router();
@@ -117,7 +120,8 @@ function formatUniqueConflict(err, { email, phone } = {}) {
 }
 
 function getResetRedirectBaseUrl() {
-  const v = String(process.env.PASSWORD_RESET_REDIRECT_URL || '').trim();
+  const clientOrigin = String(process.env.FRONTEND_URL || process.env.CLIENT_URL || process.env.CLIENT_ORIGIN || '').split(',')[0].trim();
+  const v = String(clientOrigin || process.env.PASSWORD_RESET_REDIRECT_URL || '').trim();
   return v;
 }
 
@@ -150,7 +154,10 @@ router.post('/check-registration', async (req, res) => {
     if (!isValidEmail(em)) fieldErrors.email = 'Enter a valid email address';
     else if (!isAllowedRegistrationEmail(em)) fieldErrors.email = 'Use a Gmail, Yahoo, or Outlook email address';
     if (!ph) fieldErrors.phone = 'Phone number is required';
-    else if (!isValidPhone(ph)) fieldErrors.phone = 'Phone number is invalid';
+    else {
+      const phoneError = validateRegistrationPhone(req.body?.phone);
+      if (phoneError) fieldErrors.phone = phoneError;
+    }
     if (Object.keys(fieldErrors).length) {
       return res.status(400).json({ error: 'Validation failed', fieldErrors });
     }
@@ -194,30 +201,25 @@ router.post('/register', async (req, res) => {
     const gen = String(gender || '').trim().toLowerCase();
     const dobRaw = String(dateOfBirth || '').trim();
 
-    if (!isValidName(first)) fieldErrors.firstName = 'First name is invalid';
-    if (!isValidName(last)) fieldErrors.lastName = 'Last name is invalid';
+    const firstError = validateName(first, 'First name');
+    const lastError = validateName(last, 'Last name');
+    if (firstError) fieldErrors.firstName = firstError;
+    if (lastError) fieldErrors.lastName = lastError;
     if (!isValidEmail(em)) fieldErrors.email = 'Enter a valid email address';
     else if (!isAllowedRegistrationEmail(em)) fieldErrors.email = 'Use a Gmail, Yahoo, or Outlook email address';
     if (!ph) fieldErrors.phone = 'Phone number is required';
-    else if (!isValidPhone(ph)) fieldErrors.phone = 'Phone number is invalid';
+    else {
+      const phoneError = validateRegistrationPhone(phone);
+      if (phoneError) fieldErrors.phone = phoneError;
+    }
     if (!addr || addr.length < 5 || addr.length > 160) fieldErrors.address = 'Address is invalid';
 
     const allowedGenders = new Set(['male', 'female', 'rather_not_say']);
     if (!allowedGenders.has(gen)) fieldErrors.gender = 'Gender is invalid';
 
-    let dob = null;
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(dobRaw)) {
-      fieldErrors.dateOfBirth = 'Date of birth is invalid';
-    } else {
-      const parsed = new Date(`${dobRaw}T00:00:00.000Z`);
-      if (!Number.isFinite(parsed.getTime())) {
-        fieldErrors.dateOfBirth = 'Date of birth is invalid';
-      } else if (parsed.getTime() > Date.now()) {
-        fieldErrors.dateOfBirth = 'Date of birth is invalid';
-      } else {
-        dob = parsed;
-      }
-    }
+    const dobError = validateDateOfBirth(dobRaw);
+    const dob = dobError ? null : new Date(`${dobRaw}T00:00:00.000Z`);
+    if (dobError) fieldErrors.dateOfBirth = dobError;
 
     const pwdError = validatePassword(password);
     if (pwdError) fieldErrors.password = pwdError;
@@ -356,13 +358,24 @@ router.post('/start-verification', async (req, res) => {
     const passwordError = rawPassword ? validatePassword(rawPassword) : null;
     const skipEmail = process.env.SKIP_EMAIL_VERIFICATION === 'true' || process.env.NODE_ENV === 'development';
 
-    let dob = null;
-    if (dobRaw) {
-      const parsed = new Date(`${dobRaw}T00:00:00.000Z`);
-      if (Number.isFinite(parsed.getTime()) && parsed.getTime() <= Date.now()) {
-        dob = parsed.toISOString();
-      }
+    const fieldErrors = {};
+    const firstError = validateName(first, 'First name');
+    const lastError = validateName(last, 'Last name');
+    if (firstError) fieldErrors.firstName = firstError;
+    if (lastError) fieldErrors.lastName = lastError;
+    if (!ph) fieldErrors.phone = 'Phone number is required';
+    else {
+      const phoneError = validateRegistrationPhone(phone);
+      if (phoneError) fieldErrors.phone = phoneError;
     }
+    if (!addr || addr.length < 5 || addr.length > 160) fieldErrors.address = 'Address is invalid';
+    if (!['male', 'female', 'rather_not_say'].includes(gen)) fieldErrors.gender = 'Gender is invalid';
+    const dobError = validateDateOfBirth(dobRaw);
+    if (dobError) fieldErrors.dateOfBirth = dobError;
+    if (passwordError) fieldErrors.password = passwordError;
+    if (Object.keys(fieldErrors).length) return res.status(400).json({ error: 'Validation failed', fieldErrors });
+
+    const dob = new Date(`${dobRaw}T00:00:00.000Z`).toISOString();
 
     const supabase = getSupabaseAdmin();
     const requestedId = String(userId || '').trim();
@@ -952,7 +965,7 @@ router.post('/forgot-password', async (req, res) => {
     const token = generateSecureToken(32);
     const resetUrl = buildResetLink(req, token);
 
-    await supabase
+    const { error: resetTokenSaveError } = await supabase
       .from('users')
       .update({
         'passwordReset.tokenHash': hashCode(token),
@@ -962,6 +975,7 @@ router.post('/forgot-password', async (req, res) => {
         'passwordReset.resendCount': inWindow ? currentCount + 1 : 1,
       })
       .eq('_id', user._id);
+    if (resetTokenSaveError) return res.status(500).json({ error: 'Failed to request password reset' });
 
     try {
       await sendPasswordResetEmail({ toEmail: user.email, resetUrl });
@@ -990,6 +1004,30 @@ router.post('/forgot-password', async (req, res) => {
       return res.status(500).json({ error: 'Failed to send password reset email', code: 'EMAIL_SEND_FAILED' });
     }
     return res.status(500).json({ error: 'Failed to request password reset' });
+  }
+});
+
+router.post('/validate-reset-token', async (req, res) => {
+  try {
+    const token = String(req.body?.token || '').trim();
+    if (!token) return res.status(400).json({ error: 'This reset link is invalid or expired. Please request a new one.', code: 'RESET_INVALID' });
+    const supabase = getSupabaseAdmin();
+    const tokenHash = hashCode(token);
+    const { data: user, error } = await supabase
+      .from('users')
+      .select('passwordReset')
+      .filter('"passwordReset.tokenHash"', 'eq', tokenHash)
+      .filter('"passwordReset.expiresAt"', 'gt', new Date().toISOString())
+      .maybeSingle();
+    if (error) return res.status(500).json({ error: 'Could not validate reset link' });
+    const storedHash = user?.passwordReset?.tokenHash || '';
+    const expiresAt = user?.passwordReset?.expiresAt;
+    if (!isResetTokenValid(token, storedHash, expiresAt)) {
+      return res.status(400).json({ error: 'This reset link is invalid or expired. Please request a new one.', code: 'RESET_INVALID' });
+    }
+    return res.json({ valid: true });
+  } catch (_err) {
+    return res.status(500).json({ error: 'Could not validate reset link' });
   }
 });
 
@@ -1033,9 +1071,12 @@ router.post('/reset-password', async (req, res) => {
         ...(parseBool(user.isAdmin) ? {} : { emailVerified: true }),
       })
       .eq('_id', user._id)
+      .filter('"passwordReset.tokenHash"', 'eq', tokenHash)
+      .filter('"passwordReset.expiresAt"', 'gt', new Date(now).toISOString())
       .select('*')
-      .single();
-    if (updateErr || !updated) return res.status(500).json({ error: 'Failed to reset password' });
+      .maybeSingle();
+    if (updateErr) return res.status(500).json({ error: 'Failed to reset password' });
+    if (!updated) return res.status(400).json({ error: 'Invalid or expired reset link', code: 'RESET_INVALID' });
 
     const authToken = signToken(updated);
     return res.json({ token: authToken, user: userRowToPublic(updated) });

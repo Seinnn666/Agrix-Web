@@ -37,6 +37,48 @@ export function isValidName(value) {
   return /^[a-zA-Z][a-zA-Z\s'-]*$/.test(v);
 }
 
+export function validateName(value, label) {
+  const name = normalizeSpaces(value);
+  if (!name) return `${label} is required`;
+  if (name.length < 2) return `${label} must be at least 2 characters`;
+  if (name.length > 35) return `${label} must be 35 characters or less`;
+  return isValidName(name) ? null : `${label} is invalid`;
+}
+
+function dateString(date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+export function validateDateOfBirth(value, now = new Date()) {
+  const raw = String(value || '').trim();
+  if (!raw) return 'Date of birth is required';
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return 'Date of birth is invalid';
+  const [year, month, day] = raw.split('-').map(Number);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  if (parsed.getUTCFullYear() !== year || parsed.getUTCMonth() !== month - 1 || parsed.getUTCDate() !== day) {
+    return 'Date of birth is invalid';
+  }
+  const today = dateString(now);
+  if (raw > today) return 'Date of birth cannot be in the future';
+  let age = now.getFullYear() - year;
+  if (now.getMonth() + 1 < month || (now.getMonth() + 1 === month && now.getDate() < day)) age -= 1;
+  if (age < 18) return 'You must be at least 18 years old';
+  return null;
+}
+
+export function validateRegistrationPhone(value) {
+  const raw = String(value || '').trim();
+  if (!raw || raw === '+63') return 'Phone number is required';
+  const digits = raw.replace(/\D/g, '');
+  const local = raw.startsWith('+63') ? `0${digits.slice(2)}` : digits;
+  if (raw.startsWith('+63') || local.startsWith('09')) {
+    if (local.length !== 11 || !/^09\d{9}$/.test(local)) {
+      return `Phone number must be 11 digits (you entered ${local.length})`;
+    }
+  }
+  return isValidPhone(raw) ? null : 'Phone number is invalid';
+}
+
 export function normalizePhone(value) {
   const v = String(value || '').trim();
   if (!v) return '';

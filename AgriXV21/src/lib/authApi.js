@@ -487,18 +487,10 @@ export async function loginUser(payload) {
 }
 
 export async function forgotPassword(payload) {
-  if (!isWeb()) {
-    return requestJson('/auth/forgot-password', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    });
-  }
-  const supabase = getSupabaseBrowser();
-  const email = String(payload?.email || '').trim();
-  const redirectTo = typeof window !== 'undefined' ? `${window.location.origin}/` : undefined;
-  const { error } = await supabase.auth.resetPasswordForEmail(email, redirectTo ? { redirectTo } : undefined);
-  if (error) throw new Error(error.message || 'Failed to send reset link');
-  return { ok: true };
+  return requestJson('/auth/forgot-password', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
 }
 
 export async function resetPassword(payload) {

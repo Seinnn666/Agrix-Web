@@ -120,8 +120,9 @@ function formatUniqueConflict(err, { email, phone } = {}) {
 }
 
 function getResetRedirectBaseUrl() {
-  const clientOrigin = String(process.env.FRONTEND_URL || process.env.CLIENT_URL || process.env.CLIENT_ORIGIN || '').split(',')[0].trim();
-  const v = String(clientOrigin || process.env.PASSWORD_RESET_REDIRECT_URL || '').trim();
+  const configuredFrontend = String(process.env.FRONTEND_URL || process.env.CLIENT_URL || '').split(',')[0].trim();
+  const clientOrigin = String(process.env.CLIENT_ORIGIN || '').split(',')[0].trim();
+  const v = configuredFrontend || clientOrigin;
   return v;
 }
 
@@ -137,7 +138,7 @@ function getRequestResetBaseUrl(req) {
 function buildResetLink(req, token) {
   const base = getResetRedirectBaseUrl() || getRequestResetBaseUrl(req);
   if (!base) {
-    const err = new Error('Missing PASSWORD_RESET_REDIRECT_URL');
+    const err = new Error('Missing FRONTEND_URL or CLIENT_ORIGIN');
     err.code = 'RESET_URL_NOT_CONFIGURED';
     throw err;
   }

@@ -5,7 +5,7 @@ import AgriXLogo from '../components/AgriXLogo';
 import ScreenTransition from '../components/ScreenTransition';
 import AppFooter from '../components/AppFooter';
 import HoverPressable from '../components/HoverPressable';
-import { resetPassword, saveAuth, validateResetToken } from '../lib/authApi';
+import { resetPassword, validateResetToken } from '../lib/authApi';
 import { getPasswordStrength, validatePassword } from '../lib/validation';
 import { theme } from '../ui/theme';
 
@@ -27,9 +27,11 @@ export default function ResetPasswordScreen({ navigation, route }) {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
   const [linkError, setLinkError] = useState('');
   const [fieldErrors, setFieldErrors] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isCheckingToken, setIsCheckingToken] = useState(false);
   const passwordChecks = useMemo(() => getPasswordStrength(password), [password]);
   const passwordStrength = useMemo(() => {
     const score = passwordChecks.score;
@@ -44,11 +46,24 @@ export default function ResetPasswordScreen({ navigation, route }) {
       setLinkError('This reset link is invalid or expired. Please request a new one.');
       return () => { active = false; };
     }
-    if (!token) return () => { active = false; };
+    if (!token) {
+      setLinkError('This reset link is invalid or expired. Please request a new one.');
+      return () => { active = false; };
+    }
+    setIsCheckingToken(true);
+    setLinkError('');
+    setError('');
     validateResetToken(token).then(() => {
       if (active) setLinkError('');
-    }).catch(() => {
-      if (active) setLinkError('This reset link is invalid or expired. Please request a new one.');
+    }).catch((err) => {
+      if (!active) return;
+      if (err?.code === 'RESET_INVALID') {
+        setLinkError('This reset link is invalid or expired. Please request a new one.');
+      } else {
+        setError('We couldn’t verify this reset link. Check your connection and try again.');
+      }
+    }).finally(() => {
+      if (active) setIsCheckingToken(false);
     });
     return () => { active = false; };
   }, [token, route?.params?.linkError]);
@@ -56,6 +71,7 @@ export default function ResetPasswordScreen({ navigation, route }) {
   const handleSubmit = async () => {
     try {
       setError('');
+      setSuccess('');
       setFieldErrors({});
       setIsSubmitting(true);
 
@@ -64,8 +80,17 @@ export default function ResetPasswordScreen({ navigation, route }) {
         return;
       }
 
-      if (Platform.OS !== 'web' && !token) {
-        setError('Reset link is missing or invalid.');
+      if (!token) {
+        setLinkError('This reset link is invalid or expired. Please request a new one.');
+        return;
+      }
+
+      const confirm = String(confirmPassword || '');
+      const nextErrors = {};
+      if (!password) nextErrors.password = 'Password is required';
+      if (!confirm) nextErrors.confirmPassword = 'Confirm password is required';
+      if (Object.keys(nextErrors).length) {
+        setFieldErrors(nextErrors);
         return;
       }
 
@@ -76,20 +101,13 @@ export default function ResetPasswordScreen({ navigation, route }) {
         return;
       }
 
-      const confirm = String(confirmPassword || '');
-      if (!confirm) {
-        setFieldErrors((s) => ({ ...s, confirmPassword: 'Confirm password is required' }));
-        setError('Please fix the highlighted fields');
-        return;
-      }
       if (password !== confirm) {
         setFieldErrors((s) => ({ ...s, confirmPassword: 'Passwords do not match' }));
         setError('Please fix the highlighted fields');
         return;
       }
 
-      const data = await resetPassword({ token, password: pwd.value });
-      saveAuth(data.token, data.user);
+      await resetPassword({ token, password: pwd.value, confirmPassword: confirm });
 
       if (Platform.OS === 'web') {
         try {
@@ -102,7 +120,10 @@ export default function ResetPasswordScreen({ navigation, route }) {
         }
       }
 
-      navigation.reset({ index: 0, routes: [{ name: 'Dashboard' }] });
+      setSuccess('Password reset successful. Redirecting to Sign In…');
+      setPassword('');
+      setConfirmPassword('');
+      setTimeout(() => navigation.reset({ index: 0, routes: [{ name: 'SignIn' }] }), 900);
     } catch (err) {
       if (err?.code === 'RESET_INVALID') {
         setError('This reset link is invalid or expired. Please request a new one.');
@@ -113,7 +134,7 @@ export default function ResetPasswordScreen({ navigation, route }) {
         setError('Please fix the highlighted fields');
         return;
       }
-      setError(err?.message || 'Failed to reset password');
+      setError('We couldn’t reset your password. Check your connection and try again.');
     } finally {
       setIsSubmitting(false);
     }
@@ -143,6 +164,8 @@ export default function ResetPasswordScreen({ navigation, route }) {
                     autoComplete="new-password"
                     textContentType="newPassword"
                     accessibilityLabel="New password"
+                    returnKeyType="go"
+                    onSubmitEditing={handleSubmit}
                   />
                   <TouchableOpacity style={styles.passwordToggle} onPress={() => setShowPassword((v) => !v)}>
                     <Text style={styles.passwordToggleText}>{showPassword ? 'Hide' : 'Show'}</Text>
@@ -172,9 +195,24 @@ export default function ResetPasswordScreen({ navigation, route }) {
                     value={confirmPassword}
                     onChangeText={setConfirmPassword}
                     secureTextEntry={!showConfirmPassword}
-                    autoComplete="new-password"
+                    autoComplete="off"
                     textContentType="newPassword"
                     accessibilityLabel="Confirm password"
+                    returnKeyType="go"
+                    onSubmitEditing={handleSubmit}
+                    {...(Platform.OS === 'web' ? {
+                      onPaste: (event) => event.preventDefault(),
+                      onCopy: (event) => event.preventDefault(),
+                      onCut: (event) => event.preventDefault(),
+                      onDrop: (event) => event.preventDefault(),
+                      onContextMenu: (event) => event.preventDefault(),
+                      onDragStart: (event) => event.preventDefault(),
+                      onDragOver: (event) => event.preventDefault(),
+                      onKeyDown: (event) => {
+                        const key = String(event?.key || '').toLowerCase();
+                        if ((event.ctrlKey || event.metaKey) && ['v', 'c', 'x'].includes(key)) event.preventDefault();
+                      },
+                    } : {})}
                   />
                   <TouchableOpacity style={styles.passwordToggle} onPress={() => setShowConfirmPassword((v) => !v)}>
                     <Text style={styles.passwordToggleText}>{showConfirmPassword ? 'Hide' : 'Show'}</Text>
@@ -184,20 +222,24 @@ export default function ResetPasswordScreen({ navigation, route }) {
               </View>
 
               <HoverPressable
-                style={[styles.primaryButton, isSubmitting && styles.buttonDisabled]}
+                style={[styles.primaryButton, (isSubmitting || isCheckingToken || Boolean(linkError)) && styles.buttonDisabled]}
                 onPress={handleSubmit}
-                disabled={isSubmitting || Boolean(linkError)}
+                disabled={isSubmitting || isCheckingToken || Boolean(linkError)}
                 accessibilityRole="button"
                 accessibilityLabel="Reset password"
               >
-                <Text style={styles.primaryButtonText}>{isSubmitting ? 'Resetting…' : 'Reset Password'}</Text>
+                <Text style={styles.primaryButtonText}>{isSubmitting ? 'Resetting…' : isCheckingToken ? 'Checking link…' : 'Reset Password'}</Text>
               </HoverPressable>
 
               {!!error && <Text style={styles.errorText}>{error}</Text>}
+              {!!success && <Text style={styles.successText}>{success}</Text>}
               {!!linkError && (
-                <TouchableOpacity onPress={() => navigation.navigate('ForgotPassword')}>
-                  <Text style={styles.linkText}>Request a new reset link</Text>
-                </TouchableOpacity>
+                <View>
+                  <Text style={styles.errorText}>{linkError}</Text>
+                  <TouchableOpacity onPress={() => navigation.navigate('ForgotPassword')}>
+                    <Text style={styles.linkText}>Request a new reset link</Text>
+                  </TouchableOpacity>
+                </View>
               )}
 
               <View style={styles.footerLinks}>
@@ -336,6 +378,12 @@ const styles = StyleSheet.create({
   errorText: {
     marginTop: 12,
     color: theme.colors.danger,
+    textAlign: 'center',
+    fontWeight: '800',
+  },
+  successText: {
+    marginTop: 12,
+    color: '#15803D',
     textAlign: 'center',
     fontWeight: '800',
   },

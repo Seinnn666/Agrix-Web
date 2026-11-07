@@ -1034,9 +1034,12 @@ router.post('/validate-reset-token', async (req, res) => {
 
 router.post('/reset-password', async (req, res) => {
   try {
-    const { token, password } = req.body || {};
+    const { token, password, confirmPassword } = req.body || {};
     const t = String(token || '').trim();
     if (!t) return res.status(400).json({ error: 'Reset token is required', code: 'RESET_TOKEN_REQUIRED' });
+    if (confirmPassword !== undefined && String(password || '') !== String(confirmPassword || '')) {
+      return res.status(400).json({ error: 'Validation failed', fieldErrors: { confirmPassword: 'Passwords do not match' } });
+    }
 
     const pwdError = validatePassword(password);
     if (pwdError) {

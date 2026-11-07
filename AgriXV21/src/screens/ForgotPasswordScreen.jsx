@@ -10,6 +10,7 @@ import { forgotPassword } from '../lib/authApi';
 import { validateEmail } from '../lib/validation';
 import { theme } from '../ui/theme';
 import { Moon, Sun } from '../components/Icons';
+import { formatCountdown, useCountdown } from '../hooks/useCountdown';
 
 export default function ForgotPasswordScreen({ navigation }) {
   const insets = useSafeAreaInsets();
@@ -19,10 +20,27 @@ export default function ForgotPasswordScreen({ navigation }) {
   const [error, setError] = useState('');
   const [status, setStatus] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [countdownAnnouncement, setCountdownAnnouncement] = useState('');
   const [themeMode, setThemeMode] = useState('light');
   const isDark = themeMode === 'dark';
   const fadeOpacity = useRef(new Animated.Value(1)).current;
   const isThemeAnimatingRef = useRef(false);
+  const countdownAnnouncedRef = useRef(false);
+  const { remainingSeconds: resetLimitRemaining, startCountdown, clearCountdown } = useCountdown('agrix.forgot-password.reset-limit.endAt');
+
+  useEffect(() => {
+    if (resetLimitRemaining > 0) {
+      setError(`Too many reset requests. Try again in ${formatCountdown(resetLimitRemaining)}.`);
+      if (!countdownAnnouncedRef.current) {
+        setCountdownAnnouncement(`Too many reset requests. Try again in ${formatCountdown(resetLimitRemaining)}.`);
+        countdownAnnouncedRef.current = true;
+      }
+    } else if (countdownAnnouncedRef.current) {
+      setError((current) => (current.startsWith('Too many reset requests.') ? '' : current));
+      setCountdownAnnouncement('You can request a new reset link now.');
+      countdownAnnouncedRef.current = false;
+    }
+  }, [resetLimitRemaining]);
 
   const helper = useMemo(() => {
     return isCompact
@@ -31,6 +49,7 @@ export default function ForgotPasswordScreen({ navigation }) {
   }, [isCompact]);
 
   const handleSend = async () => {
+    if (resetLimitRemaining > 0) return;
     try {
       setError('');
       setStatus('');
@@ -43,8 +62,8 @@ export default function ForgotPasswordScreen({ navigation }) {
       await forgotPassword({ email: v.value });
       setStatus('If an account exists for this email, a reset link has been sent.');
     } catch (err) {
-      if (err?.code === 'RESET_LIMIT' && typeof err?.retryAfterSeconds === 'number') {
-        setError(`Too many reset requests. Try again in ${Math.max(1, err.retryAfterSeconds)} seconds.`);
+      if ((err?.code === 'RESET_LIMIT' || err?.status === 429) && typeof err?.retryAfterSeconds === 'number') {
+        startCountdown(err.retryAfterSeconds);
         return;
       }
       setError(err?.message || 'Failed to send reset link');
@@ -199,7 +218,10 @@ export default function ForgotPasswordScreen({ navigation }) {
                           !!error && styles.inputError,
                         ]}
                         value={email}
-                        onChangeText={setEmail}
+                        onChangeText={(value) => {
+                          setEmail(value);
+                          if (resetLimitRemaining > 0) clearCountdown();
+                        }}
                         keyboardType="email-address"
                         autoCapitalize="none"
                         autoComplete="email"
@@ -209,17 +231,26 @@ export default function ForgotPasswordScreen({ navigation }) {
                     </View>
 
                     <HoverPressable
-                      style={[styles.primaryButton, isSubmitting && styles.buttonDisabled, isDark && { backgroundColor: '#15803D' }]}
+                      style={[styles.primaryButton, (isSubmitting || resetLimitRemaining > 0) && styles.buttonDisabled, isDark && { backgroundColor: '#15803D' }]}
                       onPress={handleSend}
-                      disabled={isSubmitting}
+                      disabled={isSubmitting || resetLimitRemaining > 0}
                       accessibilityRole="button"
                       accessibilityLabel="Send reset link"
                     >
-                      <Text style={styles.primaryButtonText}>{isSubmitting ? 'Sending…' : 'Send Reset Link'}</Text>
+                      <Text style={styles.primaryButtonText}>
+                        {isSubmitting ? 'Sending…' : resetLimitRemaining > 0 ? `Send Reset Link (${formatCountdown(resetLimitRemaining)})` : 'Send Reset Link'}
+                      </Text>
                     </HoverPressable>
 
                     {!!status && <Text style={[styles.statusText, isDark && { color: '#A7F3D0' }]}>{status}</Text>}
                     {!!error && <Text style={styles.errorText}>{error}</Text>}
+                    <Text
+                      accessibilityLiveRegion="polite"
+                      {...(Platform.OS === 'web' ? { 'aria-live': 'polite' } : {})}
+                      style={styles.screenReaderOnly}
+                    >
+                      {countdownAnnouncement}
+                    </Text>
 
                     <View style={styles.footerLinks}>
                       <Text style={[styles.footerText, isDark && { color: '#9CA3AF' }]}>Remembered your password? </Text>
@@ -400,6 +431,13 @@ const styles = StyleSheet.create({
     color: theme.colors.danger,
     textAlign: 'center',
     fontWeight: '800',
+  },
+  screenReaderOnly: {
+    position: 'absolute',
+    width: 1,
+    height: 1,
+    opacity: 0,
+    overflow: 'hidden',
   },
   footerLinks: {
     marginTop: 16,

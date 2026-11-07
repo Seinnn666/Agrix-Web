@@ -328,6 +328,8 @@ async function requestJson(path, options) {
       const message = res.status === 404 ? 'API endpoint not found' : 'Request failed';
       lastErr = new Error(message);
       lastErr.status = res.status;
+      const retryAfter = Number(res.headers?.get?.('Retry-After'));
+      if (Number.isFinite(retryAfter) && retryAfter > 0) lastErr.retryAfterSeconds = Math.ceil(retryAfter);
       throw lastErr;
     }
 
@@ -343,6 +345,10 @@ async function requestJson(path, options) {
     if (data?.fieldErrors) err.fieldErrors = data.fieldErrors;
     if (res.status !== 401 && data?.code) err.code = data.code;
     if (typeof data?.retryAfterSeconds === 'number') err.retryAfterSeconds = data.retryAfterSeconds;
+    else {
+      const retryAfter = Number(res.headers?.get?.('Retry-After'));
+      if (Number.isFinite(retryAfter) && retryAfter > 0) err.retryAfterSeconds = Math.ceil(retryAfter);
+    }
     if (data?.userId) err.userId = data.userId;
     if (data?.email) err.email = data.email;
     lastErr = err;

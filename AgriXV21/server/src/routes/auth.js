@@ -88,9 +88,11 @@ function redactResetErrorText(value) {
 }
 
 function logResetRouteError(routeName, error) {
-  const missingUsedColumn = error?.code === '42703' && String(error?.message || '').includes('passwordReset.used');
+  const errorMessage = String(error?.message || '');
+  const missingUsedColumn = errorMessage.includes('passwordReset.used')
+    && /does not exist|could not find|schema cache/i.test(errorMessage);
   const message = missingUsedColumn
-    ? 'passwordReset.used column missing, run migration'
+    ? `passwordReset.used column missing, run migration (${redactResetErrorText(error?.message)})`
     : redactResetErrorText(error?.message || error);
   const stack = redactResetErrorText(error?.stack || new Error(message).stack || '');
   const code = error?.code ? ` code=${redactResetErrorText(error.code)}` : '';
@@ -349,10 +351,6 @@ router.post('/register', async (req, res) => {
       }
     }
 
-    if (process.env.NODE_ENV !== 'production') {
-      console.log(`[DEV] OTP for registration email ${user.email}: ${otpCode}`);
-    }
-
     return res
       .status(201)
       .json({
@@ -521,10 +519,6 @@ router.post('/start-verification', async (req, res) => {
       if (process.env.NODE_ENV !== 'production' && sendErr?.details) {
         otpError.details = String(sendErr.details).slice(0, 500);
       }
-    }
-
-    if (process.env.NODE_ENV !== 'production') {
-      console.log(`[DEV] OTP for verification email ${user.email}: ${otpCode}`);
     }
 
     return res.json({
@@ -804,7 +798,7 @@ router.post('/resend-otp', async (req, res) => {
 
     if (inWindow && currentCount >= OTP_MAX_RESENDS_PER_WINDOW) {
       const retryAfterSeconds = Math.ceil((windowStart + OTP_RESEND_WINDOW_MS - now) / 1000);
-      return res.status(429).json({
+      return res.set('Retry-After', String(retryAfterSeconds)).status(429).json({
         error: 'Too many resend requests. Try again later.',
         code: 'OTP_RESEND_LIMIT',
         retryAfterSeconds,
@@ -825,9 +819,6 @@ router.post('/resend-otp', async (req, res) => {
       .eq('_id', user._id);
 
     await sendRegistrationOtpEmail({ toEmail: user.email, otpCode });
-    if (process.env.NODE_ENV !== 'production') {
-      console.log(`[DEV] OTP for resend email ${user.email}: ${otpCode}`);
-    }
     return res.json({ ok: true, ...(process.env.NODE_ENV !== 'production' ? { devOtpCode: otpCode } : {}) });
   } catch (err) {
     if (err?.code === 'EMAIL_NOT_CONFIGURED') {
@@ -925,7 +916,7 @@ router.post('/resend-verification', async (req, res) => {
 
     if (inWindow && currentCount >= OTP_MAX_RESENDS_PER_WINDOW) {
       const retryAfterSeconds = Math.ceil((windowStart + OTP_RESEND_WINDOW_MS - now) / 1000);
-      return res.status(429).json({
+      return res.set('Retry-After', String(retryAfterSeconds)).status(429).json({
         error: 'Too many resend requests. Try again later.',
         code: 'OTP_RESEND_LIMIT',
         retryAfterSeconds,
@@ -946,9 +937,6 @@ router.post('/resend-verification', async (req, res) => {
       .eq('_id', id);
 
     await sendRegistrationOtpEmail({ toEmail: user.email, otpCode });
-    if (process.env.NODE_ENV !== 'production') {
-      console.log(`[DEV] OTP for resend-verification email ${user.email}: ${otpCode}`);
-    }
     return res.json({ ok: true, ...(process.env.NODE_ENV !== 'production' ? { devOtpCode: otpCode } : {}) });
   } catch (err) {
     if (err?.code === 'EMAIL_NOT_CONFIGURED') {
@@ -981,7 +969,7 @@ router.post('/forgot-password', async (req, res) => {
     const currentCount = Number(getPr(user, 'resendCount') || 0);
     if (inWindow && currentCount >= RESET_MAX_RESENDS_PER_WINDOW) {
       const retryAfterSeconds = Math.ceil((windowStart + RESET_RESEND_WINDOW_MS - now) / 1000);
-      return res.status(429).json({
+      return res.set('Retry-After', String(retryAfterSeconds)).status(429).json({
         error: 'Too many reset requests. Try again later.',
         code: 'RESET_LIMIT',
         retryAfterSeconds,

@@ -8,7 +8,7 @@
     "ios": "expo start --ios",
     "web": "expo start --web --port 8082",
     "export:web": "expo export --platform web",
-    "test:validation": "node --experimental-default-type=module --test tests/cycle1-validation.test.js",
+    "test:validation": "node --experimental-default-type=module --test tests/cycle1-validation.test.js tests/countdown.test.js",
     "export:web:relative": "expo export --platform web && node ./scripts/fix-web-export-paths.js",
     "serve:dist": "node ./scripts/serve-dist.mjs 8098"
   },

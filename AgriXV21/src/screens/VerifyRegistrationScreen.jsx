@@ -1,9 +1,10 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ImageBackground, Pressable, StyleSheet, Text, TextInput, TouchableOpacity, View, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AgriXLogo from '../components/AgriXLogo';
 import { resendVerification, saveAuth, verifyRegistration } from '../lib/authApi';
 import { theme } from '../ui/theme';
+import { formatCountdown, useCountdown } from '../hooks/useCountdown';
 
 export default function VerifyRegistrationScreen({ navigation, route }) {
   const { userId, email, otpSent, otpError } = route?.params || {};
@@ -11,7 +12,24 @@ export default function VerifyRegistrationScreen({ navigation, route }) {
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [status, setStatus] = useState('');
+  const [countdownAnnouncement, setCountdownAnnouncement] = useState('');
   const hiddenInputRef = useRef(null);
+  const resendAnnouncedRef = useRef(false);
+  const resendCountdown = useCountdown('agrix.verify-registration.resend.endAt');
+
+  useEffect(() => {
+    if (resendCountdown.remainingSeconds > 0) {
+      setError(`Too many resend requests. Try again in ${formatCountdown(resendCountdown.remainingSeconds)}.`);
+      if (!resendAnnouncedRef.current) {
+        setCountdownAnnouncement(`Too many resend requests. Try again in ${formatCountdown(resendCountdown.remainingSeconds)}.`);
+        resendAnnouncedRef.current = true;
+      }
+    } else if (resendAnnouncedRef.current) {
+      setError((current) => (current.startsWith('Too many resend requests.') ? '' : current));
+      setCountdownAnnouncement('You can request a new code now.');
+      resendAnnouncedRef.current = false;
+    }
+  }, [resendCountdown.remainingSeconds]);
 
   const resolvedEmail = useMemo(() => {
     return String(email || '').trim();
@@ -67,6 +85,7 @@ export default function VerifyRegistrationScreen({ navigation, route }) {
     try {
       setError('');
       setStatus('');
+      if (resendCountdown.remainingSeconds > 0) return;
       if (!userId) {
         setError('Missing verification details. Please register again.');
         return;
@@ -75,8 +94,8 @@ export default function VerifyRegistrationScreen({ navigation, route }) {
       await resendVerification({ userId, email: resolvedEmail });
       setStatus('Code resent. Please check your email.');
     } catch (err) {
-      if (err?.code === 'OTP_RESEND_LIMIT' && typeof err?.retryAfterSeconds === 'number') {
-        setError('Too many resend requests. Please try again later.');
+      if ((err?.code === 'OTP_RESEND_LIMIT' || err?.status === 429) && typeof err?.retryAfterSeconds === 'number') {
+        resendCountdown.startCountdown(err.retryAfterSeconds);
         return;
       }
       setError(err?.message || 'Failed to resend');
@@ -138,8 +157,14 @@ export default function VerifyRegistrationScreen({ navigation, route }) {
 
             <View style={styles.resendBox}>
               <Text style={styles.resendHint}>Didn’t receive a sign-in request?</Text>
-              <TouchableOpacity style={styles.resendButton} onPress={handleResend} disabled={isSubmitting}>
-                <Text style={styles.resendText}>Resend Code</Text>
+              <TouchableOpacity
+                style={styles.resendButton}
+                onPress={handleResend}
+                disabled={isSubmitting || resendCountdown.remainingSeconds > 0}
+              >
+                <Text style={styles.resendText}>
+                  {resendCountdown.remainingSeconds > 0 ? `Resend in ${formatCountdown(resendCountdown.remainingSeconds)}` : 'Resend Code'}
+                </Text>
               </TouchableOpacity>
             </View>
 
@@ -155,6 +180,13 @@ export default function VerifyRegistrationScreen({ navigation, route }) {
 
             {!!status && <Text style={styles.statusText}>{status}</Text>}
             {!!error && <Text style={styles.errorText}>{error}</Text>}
+            <Text
+              accessibilityLiveRegion="polite"
+              {...(Platform.OS === 'web' ? { 'aria-live': 'polite' } : {})}
+              style={styles.screenReaderOnly}
+            >
+              {countdownAnnouncement}
+            </Text>
 
             <TouchableOpacity
               style={styles.backLink}
@@ -327,6 +359,13 @@ const styles = StyleSheet.create({
     color: theme.colors.danger,
     textAlign: 'center',
     fontWeight: '800',
+  },
+  screenReaderOnly: {
+    position: 'absolute',
+    width: 1,
+    height: 1,
+    opacity: 0,
+    overflow: 'hidden',
   },
   backLink: {
     marginTop: 14,

@@ -1,5 +1,10 @@
 const IS_WEB = typeof window !== 'undefined' && typeof document !== 'undefined';
 
+// Expo's Metro runtime loads on-demand chunks in production web exports.
+if (IS_WEB) {
+  require('@expo/metro-runtime');
+}
+
 function ensureStartupOverlay() {
   if (!IS_WEB) return null;
   const id = 'agrix-startup-overlay';

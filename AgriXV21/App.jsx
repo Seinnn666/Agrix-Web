@@ -7,25 +7,39 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { clearAuth, loadAuth, startWebAuthSync } from './src/lib/authApi';
 import { clearAdminAuth, loadAdminAuth } from './src/lib/adminApi';
 import ConfirmDialog from './src/components/ConfirmDialog';
-import NotificationsScreen from './src/screens/NotificationsScreen';
 import { isNotificationMuted, subscribeNotifications } from './src/lib/notifications';
 
-// Import Screens
+// Keep the initial signed-out view in the entry bundle.
 import LandingScreen from './src/screens/LandingScreen';
-import SignInScreen from './src/screens/SignInScreen';
-import SignUpScreen from './src/screens/SignUpScreen';
-import DashboardScreen from './src/screens/DashboardScreen';
-import MyProfileScreen from './src/screens/MyProfileScreen';
-import VerifyRegistrationScreen from './src/screens/VerifyRegistrationScreen';
-import ForgotPasswordScreen from './src/screens/ForgotPasswordScreen';
-import ResetPasswordScreen from './src/screens/ResetPasswordScreen';
-import AdminUsersScreen from './src/screens/AdminUsersScreen';
-import AdminDashboardScreen from './src/screens/AdminDashboardScreen';
-import AdminProfileScreen from './src/screens/AdminProfileScreen';
-import DeviceSensorsScreen from './src/screens/DeviceSensorsScreen';
-import ReadingsTimelineScreen from './src/screens/ReadingsTimelineScreen';
-import SnapshotsScreen from './src/screens/SnapshotsScreen';
-import AlertHistoryScreen from './src/screens/AlertHistoryScreen';
+
+// Defer screens not needed on the Landing Page. Expo splits the async imports
+// into web chunks; wrappers stay stable across navigation rerenders.
+function deferredScreen(importModule) {
+  const Component = React.lazy(importModule);
+  return function DeferredScreen(props) {
+    return (
+      <React.Suspense fallback={<View style={{ flex: 1, backgroundColor: '#FFFFFF' }} />}>
+        <Component {...props} />
+      </React.Suspense>
+    );
+  };
+}
+
+const SignInScreen = deferredScreen(() => import('./src/screens/SignInScreen'));
+const SignUpScreen = deferredScreen(() => import('./src/screens/SignUpScreen'));
+const DashboardScreen = deferredScreen(() => import('./src/screens/DashboardScreen'));
+const MyProfileScreen = deferredScreen(() => import('./src/screens/MyProfileScreen'));
+const VerifyRegistrationScreen = deferredScreen(() => import('./src/screens/VerifyRegistrationScreen'));
+const ForgotPasswordScreen = deferredScreen(() => import('./src/screens/ForgotPasswordScreen'));
+const ResetPasswordScreen = deferredScreen(() => import('./src/screens/ResetPasswordScreen'));
+const AdminUsersScreen = deferredScreen(() => import('./src/screens/AdminUsersScreen'));
+const AdminDashboardScreen = deferredScreen(() => import('./src/screens/AdminDashboardScreen'));
+const AdminProfileScreen = deferredScreen(() => import('./src/screens/AdminProfileScreen'));
+const DeviceSensorsScreen = deferredScreen(() => import('./src/screens/DeviceSensorsScreen'));
+const ReadingsTimelineScreen = deferredScreen(() => import('./src/screens/ReadingsTimelineScreen'));
+const SnapshotsScreen = deferredScreen(() => import('./src/screens/SnapshotsScreen'));
+const AlertHistoryScreen = deferredScreen(() => import('./src/screens/AlertHistoryScreen'));
+const NotificationsScreen = deferredScreen(() => import('./src/screens/NotificationsScreen'));
 
 const IS_WEB = typeof window !== 'undefined' && typeof document !== 'undefined';
 const Stack = IS_WEB ? createStackNavigator() : createNativeStackNavigator();

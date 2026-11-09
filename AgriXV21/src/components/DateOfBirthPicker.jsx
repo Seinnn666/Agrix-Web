@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { View, Text, TouchableOpacity, Modal, StyleSheet, FlatList, Platform } from 'react-native';
-import { ChevronLeft, ChevronRight, ChevronDown, Calendar as CalendarIcon, X } from 'lucide-react-native';
+import { ChevronLeft, ChevronRight, ChevronDown, Calendar as CalendarIcon, X } from './Icons';
 import { theme } from '../ui/theme';
 
 const MONTHS = [

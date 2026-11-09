@@ -868,6 +868,11 @@ export async function clearAuth() {
 
 export function startWebAuthSync() {
   if (!isWeb()) return () => {};
+  // A public, signed-out page can render even when Supabase has not been
+  // configured for this deployment (such as a static performance audit).
+  // Authentication actions still require a real Supabase anon key and retain
+  // the explicit configuration error from getSupabaseBrowser().
+  if (!SUPABASE_ANON_KEY) return () => {};
   const supabase = getSupabaseBrowser();
 
   const hydrateProfile = async () => {

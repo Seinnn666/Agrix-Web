@@ -1,0 +1,37 @@
+name: AgriX Live Site Deployment Check
+
+on:
+  push:
+    branches:
+      - perf/lighthouse-desktop-cycle05-b558d76
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check-live-site:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check live HTTPS response and deployment marker
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --location --fail --silent --show-error \
+            --connect-timeout 15 --max-time 35 --retry 2 \
+            --dump-header /tmp/agrix-live-headers.txt \
+            --output /tmp/agrix-live-index.html \
+            https://agrix.live/
+          echo 'Live server response:'
+          head -n 12 /tmp/agrix-live-headers.txt
+          if grep -q 'Coffee-beans-on-the-tree_1600x.jpg' /tmp/agrix-live-index.html; then
+            echo 'Optimization HTML marker found: hero preload is deployed.'
+          else
+            echo 'Optimization HTML marker not found: cannot verify optimized branch is deployed.'
+          fi
+          if grep -q '<div id="root"></div>' /tmp/agrix-live-index.html; then
+            echo 'Expo application root found.'
+          else
+            echo 'Expo application root missing.'
+            exit 1
+          fi

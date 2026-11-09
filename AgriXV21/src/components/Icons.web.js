@@ -1,30 +1,32 @@
-export {
-  Tractor,
-  Sprout,
-  Droplets,
-  Menu,
-  X,
-  Facebook,
-  Twitter,
-  Instagram,
-  Linkedin,
-  Check,
-  LayoutDashboard,
-  Users,
-  Settings,
-  LogOut,
-  BarChart2,
-  Search,
-  Bell,
-  ChevronRight,
-  User,
-  Mail,
-  Phone,
-  MapPin,
-  Calendar,
-  Lock,
-  Edit2,
-  Camera,
-  Sun,
-  Moon,
-} from 'lucide-react';
+// Import individual icons: Metro otherwise bundles the entire Lucide barrel
+// even when only a few symbols are needed on the initial page.
+export { default as Tractor } from 'lucide-react/dist/esm/icons/tractor.js';
+export { default as Sprout } from 'lucide-react/dist/esm/icons/sprout.js';
+export { default as Droplets } from 'lucide-react/dist/esm/icons/droplets.js';
+export { default as Menu } from 'lucide-react/dist/esm/icons/menu.js';
+export { default as X } from 'lucide-react/dist/esm/icons/x.js';
+export { default as Facebook } from 'lucide-react/dist/esm/icons/facebook.js';
+export { default as Twitter } from 'lucide-react/dist/esm/icons/twitter.js';
+export { default as Instagram } from 'lucide-react/dist/esm/icons/instagram.js';
+export { default as Linkedin } from 'lucide-react/dist/esm/icons/linkedin.js';
+export { default as Check } from 'lucide-react/dist/esm/icons/check.js';
+export { default as LayoutDashboard } from 'lucide-react/dist/esm/icons/layout-dashboard.js';
+export { default as Users } from 'lucide-react/dist/esm/icons/users.js';
+export { default as Settings } from 'lucide-react/dist/esm/icons/settings.js';
+export { default as LogOut } from 'lucide-react/dist/esm/icons/log-out.js';
+export { default as BarChart2 } from 'lucide-react/dist/esm/icons/chart-no-axes-column.js';
+export { default as Search } from 'lucide-react/dist/esm/icons/search.js';
+export { default as Bell } from 'lucide-react/dist/esm/icons/bell.js';
+export { default as ChevronRight } from 'lucide-react/dist/esm/icons/chevron-right.js';
+export { default as ChevronLeft } from 'lucide-react/dist/esm/icons/chevron-left.js';
+export { default as ChevronDown } from 'lucide-react/dist/esm/icons/chevron-down.js';
+export { default as User } from 'lucide-react/dist/esm/icons/user.js';
+export { default as Mail } from 'lucide-react/dist/esm/icons/mail.js';
+export { default as Phone } from 'lucide-react/dist/esm/icons/phone.js';
+export { default as MapPin } from 'lucide-react/dist/esm/icons/map-pin.js';
+export { default as Calendar } from 'lucide-react/dist/esm/icons/calendar.js';
+export { default as Lock } from 'lucide-react/dist/esm/icons/lock.js';
+export { default as Edit2 } from 'lucide-react/dist/esm/icons/pen.js';
+export { default as Camera } from 'lucide-react/dist/esm/icons/camera.js';
+export { default as Sun } from 'lucide-react/dist/esm/icons/sun.js';
+export { default as Moon } from 'lucide-react/dist/esm/icons/moon.js';

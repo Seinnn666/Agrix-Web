@@ -34,6 +34,7 @@ jobs:
       - name: Install pinned Lighthouse version
         run: |
           npm install --global lighthouse@13.6.0
+          npm install --no-save --package-lock=false puppeteer-core@24.31.0
           lighthouse --version
           google-chrome --version
 
@@ -55,25 +56,7 @@ jobs:
 
           # A successful HTTP response is insufficient: ensure React actually
           # rendered the intended Landing Page before collecting measurements.
-          google-chrome --headless=new --no-sandbox --disable-dev-shm-usage \
-            --disable-gpu --virtual-time-budget=10000 --dump-dom \
-            http://127.0.0.1:4180/ \
-            >lighthouse-reports/landing-dom.html \
-            2>lighthouse-reports/chrome-stderr.log
-          node -e '
-            const fs = require("fs");
-            const html = fs.readFileSync("lighthouse-reports/landing-dom.html", "utf8");
-            const visibleText = html
-              .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
-              .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
-              .replace(/<[^>]+>/g, " ")
-              .replace(/\s+/g, " ")
-              .slice(0, 1200);
-            console.log("Rendered-page diagnostic:", visibleText);
-            if (!html.includes("AgriX Coffee Monitoring")) {
-              throw new Error("Expected Landing Page text was not rendered");
-            }
-          '
+          node ./scripts/verify-landing.mjs
 
           for run in 1 2 3 4 5; do
             lighthouse http://127.0.0.1:4180/ \

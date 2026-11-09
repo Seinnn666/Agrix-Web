@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="%LANG_ISO_CODE%">
+  <head>
+    <meta charset="utf-8" />
+    <meta httpEquiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
+    <title>%WEB_TITLE%</title>
+    <!-- Start the Landing hero image request before React initializes. Do not
+         download it when a saved session will open a dashboard instead. -->
+    <script>
+      (function () {
+        try {
+          if (localStorage.getItem('agrix_token') || localStorage.getItem('agrix_admin_token')) return;
+        } catch (_err) {
+          // Private browsing and restricted storage still allow the public page.
+        }
+        var origin = 'https://stonestreetcoffee.com';
+        var connection = document.createElement('link');
+        connection.rel = 'preconnect';
+        connection.href = origin;
+        document.head.appendChild(connection);
+        var image = document.createElement('link');
+        image.rel = 'preload';
+        image.as = 'image';
+        image.href = origin + '/cdn/shop/articles/Coffee-beans-on-the-tree_1600x.jpg?v=1726238365';
+        image.fetchPriority = 'high';
+        document.head.appendChild(image);
+      })();
+    </script>
+    <!-- The react-native-web recommended style reset. -->
+    <style id="expo-reset">
+      html,
+      body {
+        height: 100%;
+      }
+      body {
+        overflow: hidden;
+      }
+      #root {
+        display: flex;
+        height: 100%;
+        flex: 1;
+      }
+    </style>
+  </head>
+  <body>
+    <noscript>You need to enable JavaScript to run this app.</noscript>
+    <div id="root"></div>
+  </body>
+</html>

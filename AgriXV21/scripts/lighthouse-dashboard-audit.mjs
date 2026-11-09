@@ -29,7 +29,7 @@ page.on('response', (response) => {
 });
 
 const expected = role === 'admin'
-  ? ['Welcome back, Admin', 'Total Users', '34', 'Recent Users']
+  ? ['Welcome back, Admin', 'TOTAL USERS', '34', 'Recent Users']
   : ['Track storage and field conditions in one place', 'Purpose', 'Alerts'];
 
 async function verify(label) {

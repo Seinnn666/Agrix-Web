@@ -1,0 +1,81 @@
+name: AgriX Lighthouse - Landing desktop
+
+on:
+  push:
+    branches:
+      - perf/lighthouse-desktop-cycle05-b558d76
+
+permissions:
+  contents: read
+
+jobs:
+  landing-desktop:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: AgriXV21
+    steps:
+      - name: Check out exact tested commit
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: AgriXV21/package-lock.json
+
+      - name: Install and export production web app
+        run: |
+          npm ci --no-audit --no-fund
+          npm run export:web
+
+      - name: Install pinned Lighthouse version
+        run: |
+          npm install --global lighthouse@13.6.0
+          lighthouse --version
+          google-chrome --version
+
+      - name: Verify Landing Page and run five desktop audits
+        run: |
+          set -euo pipefail
+          mkdir -p lighthouse-reports
+          python3 -m http.server 4180 --bind 127.0.0.1 --directory dist >/tmp/agrix-lighthouse-http.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+
+          for attempt in $(seq 1 30); do
+            if curl --silent --show-error --fail http://127.0.0.1:4180/ >/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          curl --silent --show-error --fail http://127.0.0.1:4180/ >/dev/null
+
+          # A successful HTTP response is insufficient: ensure React actually
+          # rendered the intended Landing Page before collecting measurements.
+          google-chrome --headless=new --no-sandbox --disable-dev-shm-usage \
+            --disable-gpu --virtual-time-budget=10000 --dump-dom \
+            http://127.0.0.1:4180/ 2>/tmp/agrix-chrome-stderr.log \
+            | grep --fixed-strings --quiet 'AgriX Coffee Monitoring'
+
+          for run in 1 2 3 4 5; do
+            lighthouse http://127.0.0.1:4180/ \
+              --preset=desktop \
+              --only-categories=performance \
+              --chrome-flags='--headless=new --no-sandbox --disable-dev-shm-usage' \
+              --output=json \
+              --output-path="./lighthouse-reports/landing-run-${run}.json" \
+              --quiet
+          done
+          node ./scripts/lighthouse-summary.mjs ./lighthouse-reports
+
+      - name: Upload raw reports and averages
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agrix-landing-lighthouse-desktop-${{ github.sha }}
+          path: AgriXV21/lighthouse-reports/
+          if-no-files-found: warn
+          retention-days: 30

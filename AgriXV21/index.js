@@ -87,7 +87,8 @@ if (IS_WEB) {
     document.head.appendChild(style);
   }
 
-  ensureStartupOverlay();
+  // Render real page content immediately; the diagnostic overlay is created
+  // only if an error occurs or the app fails to mount.
 
   const removeOverlayIfBooted = setInterval(() => {
     try {

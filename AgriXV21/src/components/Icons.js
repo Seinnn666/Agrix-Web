@@ -17,6 +17,8 @@ export {
   Search,
   Bell,
   ChevronRight,
+  ChevronLeft,
+  ChevronDown,
   User,
   Mail,
   Phone,

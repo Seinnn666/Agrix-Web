@@ -3,11 +3,14 @@ import { Animated, Easing, Platform, useWindowDimensions } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 
 export default function ScreenTransition({ children, style, type = 'slideRight', duration = 260 }) {
-  const progress = React.useRef(new Animated.Value(0)).current;
+  const isWeb = Platform.OS === 'web';
+  const progress = React.useRef(new Animated.Value(isWeb ? 1 : 0)).current;
   const { width } = useWindowDimensions();
 
   useFocusEffect(
     React.useCallback(() => {
+      // Skip the initial fade/slide on web so content can paint immediately.
+      if (isWeb) return undefined;
       progress.setValue(0);
       Animated.timing(progress, {
         toValue: 1,
@@ -15,7 +18,7 @@ export default function ScreenTransition({ children, style, type = 'slideRight',
         easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
       }).start();
-    }, [duration, progress])
+    }, [duration, progress, isWeb])
   );
 
   const distance = Math.min(48, Math.max(24, width * 0.08));
@@ -46,7 +49,7 @@ export default function ScreenTransition({ children, style, type = 'slideRight',
     <Animated.View
       style={[
         Platform.OS === 'web' ? { width: '100%', minHeight: '100vh' } : { flex: 1 },
-        { opacity, transform },
+        isWeb ? null : { opacity, transform },
         style,
       ]}
     >

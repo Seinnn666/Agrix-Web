@@ -1,0 +1,65 @@
+name: AgriX Lighthouse - synthetic dashboard desktop
+
+on:
+  push:
+    branches:
+      - perf/lighthouse-desktop-cycle05-b558d76
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dashboard-desktop:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: AgriXV21
+    steps:
+      - name: Check out exact tested commit
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: AgriXV21/package-lock.json
+
+      - name: Build production web export
+        run: |
+          npm ci --no-audit --no-fund
+          npm run export:web
+
+      - name: Install desktop audit tools
+        run: |
+          npm install --global lighthouse@13.6.0
+          npm install --no-save --package-lock=false puppeteer-core@24.31.0
+          lighthouse --version
+          google-chrome --version
+
+      - name: Verify both roles and collect five audits per role
+        run: |
+          set -euo pipefail
+          mkdir -p lighthouse-reports
+          node ./scripts/lighthouse-fixture-server.mjs >/tmp/agrix-fixture-server.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 30); do
+            if curl --silent --fail http://127.0.0.1:4180/api/health >/dev/null; then break; fi
+            sleep 1
+          done
+          curl --silent --show-error --fail http://127.0.0.1:4180/api/health >/dev/null
+          node ./scripts/lighthouse-dashboard-audit.mjs admin
+          node ./scripts/lighthouse-dashboard-audit.mjs client
+          node ./scripts/lighthouse-dashboard-summary.mjs ./lighthouse-reports
+
+      - name: Upload Lighthouse reports and fixture evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agrix-synthetic-dashboard-desktop-${{ github.sha }}
+          path: AgriXV21/lighthouse-reports/
+          if-no-files-found: warn
+          retention-days: 30

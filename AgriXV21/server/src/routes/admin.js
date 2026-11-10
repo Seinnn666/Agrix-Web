@@ -3,6 +3,7 @@ import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import { requireAdmin } from '../middleware/adminAuth.js';
 import { getSupabaseAdmin, newObjectId } from '../lib/db.js';
+import { isDatabaseUnavailableError } from '../lib/dbDiagnostics.js';
 import {
   isValidEmail,
   isValidActiveEmail,
@@ -118,7 +119,7 @@ router.post('/login', async (req, res) => {
     if (u === creds.email && p === creds.password) {
       const passwordHash = await bcrypt.hash(p, 12);
       const { data: existing, error: findErr } = await supabase.from('users').select('*').eq('email', u).maybeSingle();
-      if (findErr) return res.status(500).json({ error: 'Login failed' });
+      if (findErr) return res.status(503).json({ error: 'Service temporarily unavailable', code: 'DATABASE_UNAVAILABLE' });
 
       const payload = existing
         ? {
@@ -144,12 +145,12 @@ router.post('/login', async (req, res) => {
         ? await supabase.from('users').update(payload).eq('_id', existing._id).select('*').single()
         : await supabase.from('users').insert(payload).select('*').single();
 
-      if (saveErr || !user) return res.status(500).json({ error: 'Login failed' });
+      if (saveErr || !user) return res.status(503).json({ error: 'Service temporarily unavailable', code: 'DATABASE_UNAVAILABLE' });
       targetUser = user;
     } else {
       // 2. Check Database for other admins
       const { data: user, error } = await supabase.from('users').select('*').ilike('email', u).maybeSingle();
-      if (error) return res.status(500).json({ error: 'Login failed' });
+      if (error) return res.status(503).json({ error: 'Service temporarily unavailable', code: 'DATABASE_UNAVAILABLE' });
       targetUser = user;
       if (!targetUser) {
         return res.status(401).json({ error: 'Invalid credentials' });
@@ -167,7 +168,9 @@ router.post('/login', async (req, res) => {
     const expiresAt = new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString();
     return res.json({ token, expiresAt, user: userRowToAdminDto(targetUser) });
   } catch (err) {
-    console.error('Admin login error:', err);
+    if (isDatabaseUnavailableError(err)) {
+      return res.status(503).json({ error: 'Service temporarily unavailable', code: 'DATABASE_UNAVAILABLE' });
+    }
     return res.status(500).json({ error: 'Login failed' });
   }
 });

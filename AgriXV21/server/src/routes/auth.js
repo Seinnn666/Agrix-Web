@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { requireAuth } from '../middleware/auth.js';
 import { getSupabaseAdmin, newObjectId } from '../lib/db.js';
+import { isDatabaseUnavailableError } from '../lib/dbDiagnostics.js';
 import { generateOtpCode, generateSecureToken, hashCode, getResetTokenStatus } from '../lib/otp.js';
 import { sendPasswordResetEmail, sendRegistrationOtpEmail } from '../lib/emailjs.js';
 import { createWelcomeNotification } from './notifications.js';
@@ -24,6 +25,10 @@ import {
 } from '../lib/validation.js';
 
 const router = express.Router();
+
+function loginDatabaseUnavailable(res) {
+  return res.status(503).json({ error: 'Service temporarily unavailable', code: 'DATABASE_UNAVAILABLE' });
+}
 
 function assertEnv() {
   if (!process.env.JWT_SECRET) {
@@ -607,7 +612,7 @@ router.post('/login', async (req, res) => {
     if (em === adminCreds.email && rawPassword === adminCreds.password) {
       const passwordHash = await bcrypt.hash(rawPassword, 12);
       const { data: existing, error: findErr } = await supabase.from('users').select('*').ilike('email', em).maybeSingle();
-      if (findErr) return res.status(500).json({ error: 'Login failed' });
+      if (findErr) return loginDatabaseUnavailable(res);
 
       const payload = existing
         ? {
@@ -636,14 +641,14 @@ router.post('/login', async (req, res) => {
       const { data: user, error: upsertErr } = existing
         ? await supabase.from('users').update(payload).eq('_id', existing._id).select('*').single()
         : await supabase.from('users').insert(payload).select('*').single();
-      if (upsertErr || !user) return res.status(500).json({ error: 'Login failed' });
+      if (upsertErr || !user) return loginDatabaseUnavailable(res);
 
       const token = signToken(user);
       return res.json({ token, user: userRowToPublic(user) });
     }
 
     let { data: user, error: userErr } = await supabase.from('users').select('*').ilike('email', em).maybeSingle();
-    if (userErr) return res.status(500).json({ error: 'Login failed' });
+    if (userErr) return loginDatabaseUnavailable(res);
     if (!user) return res.status(401).json({ error: 'Invalid credentials' });
 
     if (!user._id) {
@@ -716,7 +721,8 @@ router.post('/login', async (req, res) => {
 
     const token = signToken(user);
     return res.json({ token, user: userRowToPublic(user) });
-  } catch (_err) {
+  } catch (err) {
+    if (isDatabaseUnavailableError(err)) return loginDatabaseUnavailable(res);
     return res.status(500).json({ error: 'Login failed' });
   }
 });

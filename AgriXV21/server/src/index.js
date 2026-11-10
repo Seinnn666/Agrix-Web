@@ -11,6 +11,7 @@ import usersRouter from './routes/users.js';
 import adminRouter from './routes/admin.js';
 import farmsRouter from './routes/farms.js';
 import sensorsRouter from './routes/sensors.js';
+import { getDatabaseErrorInfo } from './lib/dbDiagnostics.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -124,12 +125,15 @@ app.get('/health', async (_req, res) => {
       },
     });
   } catch (err) {
-    return res.status(500).json({
+    const dbError = getDatabaseErrorInfo(err);
+    console.error('[health] Supabase check failed:', dbError);
+    return res.status(503).json({
       ok: false,
       db: {
         provider: 'supabase',
         connected: false,
-        error: String(err?.message || err),
+        error: dbError.message,
+        ...(dbError.code ? { code: dbError.code } : {}),
       },
     });
   }

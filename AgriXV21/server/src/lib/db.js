@@ -51,11 +51,34 @@ export function newObjectId() {
 }
 
 export async function checkDb() {
-  const client = getSupabaseAdmin();
-  const { error } = await client.from('users').select('_id', { head: true, count: 'exact' }).limit(1);
-  if (error) {
-    const err = new Error(error.message || 'Supabase query failed');
-    err.details = error;
-    throw err;
+  const url = resolveSupabaseUrl().replace(/\/$/, '');
+  const key = resolveSupabaseKey();
+  if (!key) throw new Error('Missing Supabase server key');
+
+  let response;
+  try {
+    response = await fetch(`${url}/rest/v1/users?select=_id&limit=0`, {
+      headers: { apikey: key, Authorization: `Bearer ${key}` },
+    });
+  } catch (error) {
+    const networkError = new Error(error?.message || 'Cannot reach Supabase');
+    networkError.code = error?.cause?.code || error?.code;
+    networkError.details = error?.cause?.message || '';
+    throw networkError;
+  }
+
+  if (!response.ok) {
+    const bodyText = await response.text();
+    let body = {};
+    try {
+      body = JSON.parse(bodyText);
+    } catch (_error) {
+      body = {};
+    }
+    const databaseError = new Error(body.message || body.msg || `Supabase request failed (HTTP ${response.status})`);
+    databaseError.code = body.code || `HTTP_${response.status}`;
+    databaseError.hint = body.hint;
+    databaseError.details = body.details || bodyText;
+    throw databaseError;
   }
 }

@@ -333,9 +333,7 @@ async function requestJson(path, options) {
       throw lastErr;
     }
 
-    const message = res.status === 401
-      ? 'The API rejected the request (401).'
-      : (data?.error || 'Request failed');
+    const message = data?.error || (res.status === 401 ? 'The API rejected the request (401).' : 'Request failed');
     const err = new Error(message);
     err.status = res.status;
     if (res.status === 401) {

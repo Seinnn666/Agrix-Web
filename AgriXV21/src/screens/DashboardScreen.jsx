@@ -426,7 +426,7 @@ export default function DashboardScreen({ navigation, route }) {
   };
 
   const connected = isReadingFresh(latestReading, 5 * 60 * 1000);
-  const liveConnected = String(iotStatus || '') === 'online' && connected;
+  const liveConnected = isWeb ? connected : String(iotStatus || '') === 'online' && connected;
   const displayReading = liveConnected ? latestReading : null;
   const statusPill = useMemo(() => {
     if (isWeb) {

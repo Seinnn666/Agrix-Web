@@ -172,8 +172,8 @@ export default function DeviceSensorsScreen({ navigation }) {
         const ips = Array.isArray(data?.ips) ? data.ips : [];
         const ip = String(ips[0] || '').trim();
         if (!ip) return;
-        const port = String(u.port || '5000').trim() || '5000';
-        const next = `http://${ip}:${port}/api/sensor-data`;
+        const port = String(u.port || '4012').trim() || '4012';
+        const next = `http://${ip}:${port}/sensors/ingest`;
         if (cancelled) return;
         setLanIngestUrl(next);
       } catch (_err) {
@@ -195,7 +195,7 @@ export default function DeviceSensorsScreen({ navigation }) {
     const url = String(iotSocketUrl || '').trim();
     if (!url) {
       setIotTestStatus('fail');
-      setIotTestMessage('Set IoT server URL first.');
+      setIotTestMessage('Set AgriX API URL first.');
       return;
     }
     setIotTestStatus('checking');
@@ -435,23 +435,23 @@ export default function DeviceSensorsScreen({ navigation }) {
                 <View style={[layoutStyles.card, isDark && styles.cardDark]}>
                   <Text style={[layoutStyles.cardTitle, isDark && { color: '#F9FAFB' }]}>Connect device</Text>
                   <Text style={[layoutStyles.cardText, isDark && styles.mutedDark]}>
-                    Set the IoT server URL (PC running iot-server.js). This also generates the Arduino server URL.
+                    Set the AgriX API URL running on this PC. This generates the Arduino URL for the backend.
                   </Text>
 
                   <View style={styles.formGrid}>
                     <View style={[styles.formField, { minWidth: 320 }]}>
-                      <Text style={[styles.formLabel, isDark && styles.mutedDark]}>IoT server URL</Text>
+                      <Text style={[styles.formLabel, isDark && styles.mutedDark]}>AgriX API URL</Text>
                       <TextInput
                         style={[styles.input, isDark && styles.inputDark]}
                         value={draftIotSocketUrl}
                         onChangeText={setDraftIotSocketUrl}
-                        placeholder="http://192.168.1.66:5000"
+                        placeholder="http://192.168.1.66:4012"
                         placeholderTextColor={theme.colors.textMuted}
                         autoCapitalize="none"
                       />
                     </View>
                     <View style={[styles.formField, { minWidth: 320 }]}>
-                      <Text style={[styles.formLabel, isDark && styles.mutedDark]}>Arduino server URL</Text>
+                      <Text style={[styles.formLabel, isDark && styles.mutedDark]}>Arduino SERVER_URL</Text>
                       <TextInput
                         style={[styles.input, isDark && styles.inputDark]}
                         value={lanIngestUrl || ingestUrl}

@@ -55,12 +55,14 @@ function rowToReadingDto(row) {
 async function insertReading(supabase, payload, userId) {
   const base = {
     _id: newObjectId(),
-    deviceId: payload.deviceId,
+    deviceid: payload.deviceId,
     temperature: payload.temperature,
     humidity: payload.humidity,
-    soilMoisture: payload.soilMoisture,
-    soilPh: payload.soilPh,
-    createdAt: payload.createdAt,
+    ...(payload.soilMoisture == null ? {} : { soilmoisture: payload.soilMoisture }),
+    ...(payload.soilPh == null ? {} : { soilph: payload.soilPh }),
+    // sensor_readings uses the SQL-style timestamp column; the DTO still
+    // exposes createdAt to the frontend.
+    createdat: payload.createdAt,
   };
 
   if (!userId) {
@@ -68,28 +70,20 @@ async function insertReading(supabase, payload, userId) {
     return { data, error };
   }
 
-  const first = await supabase
-    .from('sensor_readings')
-    .insert({ ...base, userId })
-    .select('*')
-    .single();
-  if (!first.error) return first;
-
-  const msg = String(first.error?.message || '');
-  if (/column .*userId/i.test(msg) || /userId/i.test(msg) || /schema cache/i.test(msg)) {
-    const second = await supabase
+  let lastResult = null;
+  for (const userColumn of ['userId', 'user_id', 'userid']) {
+    const result = await supabase
       .from('sensor_readings')
-      .insert({ ...base, user_id: userId })
+      .insert({ ...base, [userColumn]: userId })
       .select('*')
       .single();
-    if (!second.error) return second;
-    const msg2 = String(second.error?.message || '');
-    if (/column .*user_id/i.test(msg2) || /user_id/i.test(msg2) || /schema cache/i.test(msg2)) {
-      return supabase.from('sensor_readings').insert(base).select('*').single();
-    }
-    return second;
+    if (!result.error) return result;
+    lastResult = result;
+    const message = String(result.error?.message || '');
+    if (!/schema cache|could not find.*column|column .* does not exist/i.test(message)) return result;
   }
-  return first;
+
+  return lastResult || { data: null, error: new Error('Could not associate sensor reading with the signed-in user') };
 }
 
 async function querySensorHistory(supabase, { userId, deviceId, limit, beforeIso }) {

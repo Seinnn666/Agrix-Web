@@ -87,7 +87,7 @@ export function getIotSocketUrl() {
   if (fromEnv) return fromEnv;
   if (typeof window !== 'undefined' && window.location?.hostname) {
     const host = String(window.location.hostname || '').trim();
-    if (host) return normalizeUrl(`http://${host}:5000`);
+    if (host) return normalizeUrl(`http://${host}:4012`);
   }
   return '';
 }
@@ -109,7 +109,7 @@ export function setIotSocketUrl(value) {
 export function getIotIngestUrl() {
   const base = getIotSocketUrl();
   if (!base) return '';
-  return `${base}/api/sensor-data`;
+  return `${base}/sensors/ingest`;
 }
 
 export function listSensorReadings() {
